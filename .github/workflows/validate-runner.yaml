@@ -1,0 +1,35 @@
+name: Validate-runner
+
+on:
+  pull_request:
+    branches:
+        - main
+
+  push:
+    branches:
+        - dev
+        - main
+
+jobs:
+  validate:
+    name: Validate-runner
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Show runner information
+        run: |
+          echo "OS:"
+          cat /etc/os-release
+
+          echo "Architecture:"
+          uname -m
+
+          echo "GitHub runner:"
+          echo "$RUNNER_NAME"
+
+      - name: Validate repository
+        run: |
+          echo "Run GitOps validation here"
