@@ -9,6 +9,7 @@ on:
 
   push:
     branches:
+      - dev
       - main
     paths:
       - '*/*/applicationset.yaml'
@@ -366,164 +367,164 @@ jobs:
 
           PY
 
-  # =========================================================
-  # DEPLOYMENT
-  # =========================================================
-  deploy:
-    name: Deploy ApplicationSet
-    runs-on: ubuntu-latest
+  # # =========================================================
+  # # DEPLOYMENT
+  # # =========================================================
+  # deploy:
+  #   name: Deploy ApplicationSet
+  #   runs-on: ubuntu-latest
 
-    needs:
-      - validate
+  #   needs:
+  #     - validate
 
-    # Deploy ONLY after merge/push to main.
-    # Never deploy from a Pull Request.
-    if: |
-      github.event_name == 'push' &&
-      github.ref == 'refs/heads/main'
+  #   # Deploy ONLY after merge/push to main.
+  #   # Never deploy from a Pull Request.
+  #   if: |
+  #     github.event_name == 'push' &&
+  #     github.ref == 'refs/heads/main'
 
-    steps:
-      # -----------------------------------------------------
-      # Checkout
-      # -----------------------------------------------------
-      - name: Checkout repository
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
+  #   steps:
+  #     # -----------------------------------------------------
+  #     # Checkout
+  #     # -----------------------------------------------------
+  #     - name: Checkout repository
+  #       uses: actions/checkout@v4
+  #       with:
+  #         fetch-depth: 0
 
-      # -----------------------------------------------------
-      # Configure Kubernetes authentication
-      #
-      # GitHub Secret:
-      #
-      # KUBECONFIG_B64
-      #
-      # -----------------------------------------------------
-      - name: Configure Kubernetes
-        env:
-          KUBECONFIG_B64: ${{ secrets.KUBECONFIG_B64 }}
-        run: |
-          set -e
+  #     # -----------------------------------------------------
+  #     # Configure Kubernetes authentication
+  #     #
+  #     # GitHub Secret:
+  #     #
+  #     # KUBECONFIG_B64
+  #     #
+  #     # -----------------------------------------------------
+  #     - name: Configure Kubernetes
+  #       env:
+  #         KUBECONFIG_B64: ${{ secrets.KUBECONFIG_B64 }}
+  #       run: |
+  #         set -e
 
-          mkdir -p ~/.kube
+  #         mkdir -p ~/.kube
 
-          echo "$KUBECONFIG_B64" \
-            | base64 --decode \
-            > ~/.kube/config
+  #         echo "$KUBECONFIG_B64" \
+  #           | base64 --decode \
+  #           > ~/.kube/config
 
-          chmod 600 ~/.kube/config
+  #         chmod 600 ~/.kube/config
 
-      # -----------------------------------------------------
-      # Verify Kubernetes connectivity
-      # -----------------------------------------------------
-      - name: Verify Kubernetes connection
-        run: |
-          kubectl cluster-info
+  #     # -----------------------------------------------------
+  #     # Verify Kubernetes connectivity
+  #     # -----------------------------------------------------
+  #     - name: Verify Kubernetes connection
+  #       run: |
+  #         kubectl cluster-info
 
-          echo
-          echo "Current context:"
-          kubectl config current-context
+  #         echo
+  #         echo "Current context:"
+  #         kubectl config current-context
 
-      # -----------------------------------------------------
-      # Make sure ApplicationSet CRD exists
-      # -----------------------------------------------------
-      - name: Verify ApplicationSet CRD
-        run: |
-          kubectl get crd applicationsets.argoproj.io
+  #     # -----------------------------------------------------
+  #     # Make sure ApplicationSet CRD exists
+  #     # -----------------------------------------------------
+  #     - name: Verify ApplicationSet CRD
+  #       run: |
+  #         kubectl get crd applicationsets.argoproj.io
 
-      # -----------------------------------------------------
-      # Find ApplicationSets changed by this push
-      # -----------------------------------------------------
-      - name: Find changed ApplicationSets
-        run: |
-          set -e
+  #     # -----------------------------------------------------
+  #     # Find ApplicationSets changed by this push
+  #     # -----------------------------------------------------
+  #     - name: Find changed ApplicationSets
+  #       run: |
+  #         set -e
 
-          BASE_SHA="${{ github.event.before }}"
-          HEAD_SHA="${{ github.sha }}"
+  #         BASE_SHA="${{ github.event.before }}"
+  #         HEAD_SHA="${{ github.sha }}"
 
-          echo "Base SHA: ${BASE_SHA}"
-          echo "Head SHA: ${HEAD_SHA}"
+  #         echo "Base SHA: ${BASE_SHA}"
+  #         echo "Head SHA: ${HEAD_SHA}"
 
-          if [ "${BASE_SHA}" = "0000000000000000000000000000000000000000" ]; then
+  #         if [ "${BASE_SHA}" = "0000000000000000000000000000000000000000" ]; then
 
-            find . \
-              -mindepth 3 \
-              -maxdepth 3 \
-              -type f \
-              -name applicationset.yaml \
-              | sed 's#^\./##' \
-              | sort \
-              > /tmp/appset-files.txt
+  #           find . \
+  #             -mindepth 3 \
+  #             -maxdepth 3 \
+  #             -type f \
+  #             -name applicationset.yaml \
+  #             | sed 's#^\./##' \
+  #             | sort \
+  #             > /tmp/appset-files.txt
 
-          else
+  #         else
 
-            git diff \
-              --name-only \
-              --diff-filter=ACMR \
-              "${BASE_SHA}" \
-              "${HEAD_SHA}" \
-              -- '*/*/applicationset.yaml' \
-              > /tmp/appset-files.txt
+  #           git diff \
+  #             --name-only \
+  #             --diff-filter=ACMR \
+  #             "${BASE_SHA}" \
+  #             "${HEAD_SHA}" \
+  #             -- '*/*/applicationset.yaml' \
+  #             > /tmp/appset-files.txt
 
-          fi
+  #         fi
 
-          echo
-          echo "ApplicationSets to deploy:"
-          echo "------------------------------------------"
+  #         echo
+  #         echo "ApplicationSets to deploy:"
+  #         echo "------------------------------------------"
 
-          cat /tmp/appset-files.txt
+  #         cat /tmp/appset-files.txt
 
-          echo "------------------------------------------"
+  #         echo "------------------------------------------"
 
-      # -----------------------------------------------------
-      # Kubernetes + ApplicationSet CRD validation
-      #
-      # Nothing is actually created here.
-      # -----------------------------------------------------
-      - name: Server-side ApplicationSet validation
-        run: |
-          set -e
+  #     # -----------------------------------------------------
+  #     # Kubernetes + ApplicationSet CRD validation
+  #     #
+  #     # Nothing is actually created here.
+  #     # -----------------------------------------------------
+  #     - name: Server-side ApplicationSet validation
+  #       run: |
+  #         set -e
 
-          while read -r file; do
+  #         while read -r file; do
 
-            [ -z "$file" ] && continue
+  #           [ -z "$file" ] && continue
 
-            echo
-            echo "=========================================="
-            echo "Server-side validating: $file"
-            echo "=========================================="
+  #           echo
+  #           echo "=========================================="
+  #           echo "Server-side validating: $file"
+  #           echo "=========================================="
 
-            kubectl apply \
-              --dry-run=server \
-              -f "$file"
+  #           kubectl apply \
+  #             --dry-run=server \
+  #             -f "$file"
 
-          done < /tmp/appset-files.txt
+  #         done < /tmp/appset-files.txt
 
-      # -----------------------------------------------------
-      # Deploy ApplicationSets
-      # -----------------------------------------------------
-      - name: Deploy ApplicationSets
-        run: |
-          set -e
+  #     # -----------------------------------------------------
+  #     # Deploy ApplicationSets
+  #     # -----------------------------------------------------
+  #     - name: Deploy ApplicationSets
+  #       run: |
+  #         set -e
 
-          while read -r file; do
+  #         while read -r file; do
 
-            [ -z "$file" ] && continue
+  #           [ -z "$file" ] && continue
 
-            echo
-            echo "=========================================="
-            echo "Deploying: $file"
-            echo "=========================================="
+  #           echo
+  #           echo "=========================================="
+  #           echo "Deploying: $file"
+  #           echo "=========================================="
 
-            kubectl apply \
-              -f "$file"
+  #           kubectl apply \
+  #             -f "$file"
 
-          done < /tmp/appset-files.txt
+  #         done < /tmp/appset-files.txt
 
-      # -----------------------------------------------------
-      # Show resulting ApplicationSets
-      # -----------------------------------------------------
-      - name: Show deployed ApplicationSets
-        run: |
-          kubectl get applicationsets \
-            -n argocd
+  #     # -----------------------------------------------------
+  #     # Show resulting ApplicationSets
+  #     # -----------------------------------------------------
+  #     - name: Show deployed ApplicationSets
+  #       run: |
+  #         kubectl get applicationsets \
+  #           -n argocd
