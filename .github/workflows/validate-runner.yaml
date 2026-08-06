@@ -1,15 +1,15 @@
 name: Validate-runner
 
 on:
-    workflow_dispatch:
-    pull_request:
+  pull_request:
     branches:
-        - main
+    - main
   push:
     branches:
-        - dev
-        - main
-
+    - dev
+    - main
+  workflow_dispatch:
+        
 jobs:
   validate:
     name: Validate-runner
