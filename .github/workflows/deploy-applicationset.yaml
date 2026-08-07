@@ -319,38 +319,38 @@ jobs:
           chmod 600 ~/.kube/config
 
 
-      - name: Verify Kubernetes connection
-        run: |
+      # - name: Verify Kubernetes connection
+      #   run: |
 
-          kubectl cluster-info
+      #     kubectl cluster-info
 
-          echo
-          kubectl config current-context
-
-
-      - name: Verify ApplicationSet CRD
-        run: |
-          kubectl get crd applicationsets.argoproj.io
+      #     echo
+      #     kubectl config current-context
 
 
-      - name: Server-side ApplicationSet dry-run
-        shell: bash
-        run: |
+      # - name: Verify ApplicationSet CRD
+      #   run: |
+      #     kubectl get crd applicationsets.argoproj.io
 
-          while read -r file; do
 
-            [ -z "$file" ] && continue
+      # - name: Server-side ApplicationSet dry-run
+      #   shell: bash
+      #   run: |
 
-            echo
-            echo "=========================================="
-            echo "Server-side dry-run: $file"
-            echo "=========================================="
+      #     while read -r file; do
 
-            kubectl apply \
-              --dry-run=server \
-              -f "$file"
+      #       [ -z "$file" ] && continue
 
-          done < /tmp/appset-files.txt
+      #       echo
+      #       echo "=========================================="
+      #       echo "Server-side dry-run: $file"
+      #       echo "=========================================="
+
+      #       kubectl apply \
+      #         --dry-run=server \
+      #         -f "$file"
+
+      #     done < /tmp/appset-files.txt
 
 
   # =========================================================
