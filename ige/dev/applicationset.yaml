@@ -16,7 +16,7 @@ spec:
       name: '{{app}}'
 
     spec:
-      project: default
+      project: ige
 
       source:
         repoURL: https://github.com/ferchdav/argocd-example-apps
