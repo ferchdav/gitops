@@ -1,11 +1,15 @@
 name: Validate and Deploy ApplicationSet
 
 on:
+
   pull_request:
     branches:
       - main
     paths:
       - '*/*/applicationset.yaml'
+      - '.github/config/tribe-projects.yaml'
+      - '.github/scripts/**'
+      - '.github/workflows/deploy-applicationset.yaml'
 
   push:
     branches:
@@ -13,97 +17,202 @@ on:
       - main
     paths:
       - '*/*/applicationset.yaml'
+      - '.github/config/tribe-projects.yaml'
+      - '.github/scripts/**'
+      - '.github/workflows/deploy-applicationset.yaml'
 
   workflow_dispatch:
+
 
 permissions:
   contents: read
 
+
 jobs:
+
   # =========================================================
-  # VALIDATION
+  # 1. VALIDATION
+  #
+  # Runs automatically.
+  #
+  # This validates:
+  #
+  # - YAML syntax
+  # - ApplicationSet structure
+  # - tribe/project mapping
+  # - enabled tribe rollout rules
+  #
+  # It does NOT require Kubernetes access.
   # =========================================================
+
   validate:
+
     name: Validate ApplicationSet
+
     runs-on: ubuntu-latest
 
+    outputs:
+      appset_count: ${{ steps.select.outputs.count }}
+
     steps:
-      # -----------------------------------------------------
-      # Checkout repository
-      # -----------------------------------------------------
+
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      # -----------------------------------------------------
-      # Install validation dependencies
-      # -----------------------------------------------------
-      - name: Install YAML validation tools
+
+      - name: Install validation tools
         run: |
           python -m pip install --upgrade pip
-          pip install yamllint pyyaml
+          pip install pyyaml yamllint
 
-      # -----------------------------------------------------
-      # Find changed ApplicationSet files
-      # -----------------------------------------------------
-      - name: Find ApplicationSet files
+
+      - name: Determine base commit
+        id: base
+        shell: bash
         run: |
-          set -e
 
-          echo "GitHub event: ${{ github.event_name }}"
-
-          # Pull Request
           if [ "${{ github.event_name }}" = "pull_request" ]; then
 
             BASE_SHA="${{ github.event.pull_request.base.sha }}"
-            HEAD_SHA="${{ github.event.pull_request.head.sha }}"
 
-            echo "PR base: ${BASE_SHA}"
-            echo "PR head: ${HEAD_SHA}"
-
-            git diff --name-only --diff-filter=ACMR "${BASE_SHA}" "${HEAD_SHA}" -- '*/*/applicationset.yaml' > /tmp/appset-files.txt
-
-          # Push to main
           elif [ "${{ github.event_name }}" = "push" ]; then
 
             BASE_SHA="${{ github.event.before }}"
-            HEAD_SHA="${{ github.sha }}"
 
-            echo "Push base: ${BASE_SHA}"
-            echo "Push head: ${HEAD_SHA}"
-
-            # github.event.before can be all zeros on the first push
-            if [ "${BASE_SHA}" = "0000000000000000000000000000000000000000" ]; then
-              find . -mindepth 3 -maxdepth 3 -type f -name applicationset.yaml | sed 's#^\./##' | sort > /tmp/appset-files.txt
-            else
-              git diff --name-only --diff-filter=ACMR "${BASE_SHA}" "${HEAD_SHA}" -- '*/*/applicationset.yaml' > /tmp/appset-files.txt
-            fi
-
-          # workflow_dispatch
           else
-            find . -mindepth 3 -maxdepth 3 -type f -name applicationset.yaml | sed 's#^\./##' | sort > /tmp/appset-files.txt
+
+            BASE_SHA=""
+
+          fi
+
+          echo "sha=${BASE_SHA}" >> "$GITHUB_OUTPUT"
+
+          echo "Base SHA: ${BASE_SHA}"
+
+
+      - name: Find changed ApplicationSets
+        shell: bash
+        run: |
+
+          set -e
+
+          BASE_SHA="${{ steps.base.outputs.sha }}"
+
+          touch /tmp/appset-files-all.txt
+
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+
+            echo "Manual workflow execution."
+
+          elif [ -z "${BASE_SHA}" ] || \
+               [ "${BASE_SHA}" = "0000000000000000000000000000000000000000" ]; then
+
+            find . \
+              -mindepth 3 \
+              -maxdepth 3 \
+              -type f \
+              -name applicationset.yaml \
+              | sed 's#^\./##' \
+              | sort \
+              > /tmp/appset-files-all.txt
+
+          else
+
+            git diff \
+              --name-only \
+              --diff-filter=ACMR \
+              "${BASE_SHA}" \
+              "${{ github.sha }}" \
+              -- '*/*/applicationset.yaml' \
+              > /tmp/appset-files-all.txt
+
           fi
 
           echo
-          echo "ApplicationSet files:"
-          echo "------------------------------------------"
+          echo "Changed ApplicationSets:"
+          cat /tmp/appset-files-all.txt || true
 
-          cat /tmp/appset-files.txt
 
-          echo "------------------------------------------"
+      - name: Load previous tribe configuration
+        shell: bash
+        run: |
 
-          if [ ! -s /tmp/appset-files.txt ]; then
-            echo "No ApplicationSet files found."
+          BASE_SHA="${{ steps.base.outputs.sha }}"
+
+          echo "tribes: {}" \
+            > /tmp/tribe-projects-base.yaml
+
+          if [ -z "${BASE_SHA}" ]; then
             exit 0
           fi
 
-      # -----------------------------------------------------
-      # Validate YAML syntax / formatting
-      # -----------------------------------------------------
-      - name: Validate YAML syntax
+          if [ "${BASE_SHA}" = "0000000000000000000000000000000000000000" ]; then
+            exit 0
+          fi
+
+          if git cat-file \
+            -e "${BASE_SHA}:.github/config/tribe-projects.yaml" \
+            2>/dev/null; then
+
+            git show \
+              "${BASE_SHA}:.github/config/tribe-projects.yaml" \
+              > /tmp/tribe-projects-base.yaml
+
+          fi
+
+
+      - name: Select ApplicationSets
+        id: select
+        shell: bash
         run: |
-          set -e
+
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+
+            python \
+              .github/scripts/select_appsets.py \
+              --config .github/config/tribe-projects.yaml \
+              --changed-files /tmp/appset-files-all.txt \
+              --output /tmp/appset-files.txt \
+              --all-enabled
+
+          else
+
+            python \
+              .github/scripts/select_appsets.py \
+              --config .github/config/tribe-projects.yaml \
+              --base-config /tmp/tribe-projects-base.yaml \
+              --changed-files /tmp/appset-files-all.txt \
+              --output /tmp/appset-files.txt
+
+          fi
+
+          COUNT=$(
+            grep -cve '^[[:space:]]*$' \
+              /tmp/appset-files.txt \
+              2>/dev/null || true
+          )
+
+          echo "count=${COUNT}" >> "$GITHUB_OUTPUT"
+
+          echo
+          echo "Selected ApplicationSets:"
+          cat /tmp/appset-files.txt || true
+
+
+      - name: Upload selected ApplicationSet list
+        uses: actions/upload-artifact@v4
+        with:
+          name: selected-applicationsets
+          path: /tmp/appset-files.txt
+          if-no-files-found: error
+
+
+      - name: Validate YAML syntax
+        if: steps.select.outputs.count != '0'
+        shell: bash
+        run: |
 
           while read -r file; do
 
@@ -111,7 +220,7 @@ jobs:
 
             echo
             echo "=========================================="
-            echo "Validating YAML: $file"
+            echo "yamllint: $file"
             echo "=========================================="
 
             yamllint \
@@ -127,404 +236,217 @@ jobs:
 
           done < /tmp/appset-files.txt
 
-      # -----------------------------------------------------
-      # Validate basic ApplicationSet structure
-      # -----------------------------------------------------
-      - name: Validate ApplicationSet structure
+
+      - name: Validate ApplicationSets
+        if: steps.select.outputs.count != '0'
         run: |
-          python <<'PY'
-          import sys
-          import yaml
 
-          errors = []
+          python \
+            .github/scripts/validate_applicationset.py \
+            --config .github/config/tribe-projects.yaml \
+            --files /tmp/appset-files.txt
 
-          with open("/tmp/appset-files.txt") as files:
-              filenames = [
-                  line.strip()
-                  for line in files
-                  if line.strip()
-              ]
 
-          for filename in filenames:
-
-              print()
-              print("=" * 60)
-              print(f"Validating: {filename}")
-              print("=" * 60)
-
-              try:
-                  with open(filename) as f:
-                      manifest = yaml.safe_load(f)
-
-              except Exception as exc:
-                  errors.append(
-                      f"{filename}: YAML parsing error: {exc}"
-                  )
-                  continue
-
-              if not isinstance(manifest, dict):
-                  errors.append(
-                      f"{filename}: YAML document must contain an object"
-                  )
-                  continue
-
-              # apiVersion
-              if manifest.get("apiVersion") != "argoproj.io/v1alpha1":
-                  errors.append(
-                      f"{filename}: apiVersion must be "
-                      f"'argoproj.io/v1alpha1'"
-                  )
-
-              # kind
-              if manifest.get("kind") != "ApplicationSet":
-                  errors.append(
-                      f"{filename}: kind must be 'ApplicationSet'"
-                  )
-
-              # metadata
-              metadata = manifest.get("metadata")
-
-              if not isinstance(metadata, dict):
-                  errors.append(
-                      f"{filename}: metadata is required"
-                  )
-              else:
-                  if not metadata.get("name"):
-                      errors.append(
-                          f"{filename}: metadata.name is required"
-                      )
-
-              # spec
-              spec = manifest.get("spec")
-
-              if not isinstance(spec, dict):
-                  errors.append(
-                      f"{filename}: spec is required"
-                  )
-                  continue
-
-              # generators
-              generators = spec.get("generators")
-
-              if not generators:
-                  errors.append(
-                      f"{filename}: spec.generators is required"
-                  )
-
-              # template
-              template = spec.get("template")
-
-              if not isinstance(template, dict):
-                  errors.append(
-                      f"{filename}: spec.template is required"
-                  )
-                  continue
-
-              template_spec = template.get("spec")
-
-              if not isinstance(template_spec, dict):
-                  errors.append(
-                      f"{filename}: spec.template.spec is required"
-                  )
-
-          if errors:
-
-              print()
-              print("==========================================")
-              print("APPLICATIONSET STRUCTURE VALIDATION FAILED")
-              print("==========================================")
-
-              for error in errors:
-                  print(f"ERROR: {error}")
-
-              sys.exit(1)
-
-          print()
-          print("ApplicationSet structure validation passed.")
-
-          PY
-
-      # -----------------------------------------------------
-      # Validate:
-      #
-      # <tribe>/<environment>/applicationset.yaml
-      #
-      # tribe MUST equal:
-      #
-      # spec.template.spec.project
-      #
-      # Example:
-      #
-      # ige/dev/applicationset.yaml
-      #              project: ige
-      #
-      # dfa/prod/applicationset.yaml
-      #              project: dfa
-      # -----------------------------------------------------
-      - name: Validate tribe matches Argo CD project
+      - name: Nothing to validate
+        if: steps.select.outputs.count == '0'
         run: |
-          python <<'PY'
-          import sys
-          import yaml
-          from pathlib import Path
+          echo "No ApplicationSets from enabled tribes require validation."
 
-          errors = []
 
-          with open("/tmp/appset-files.txt") as files:
-              filenames = [
-                  line.strip()
-                  for line in files
-                  if line.strip()
-              ]
+  # =========================================================
+  # 2. KUBERNETES SERVER-SIDE DRY-RUN
+  #
+  # Runs automatically AFTER validation.
+  #
+  # This checks the real Kubernetes API server and the
+  # installed ApplicationSet CRD.
+  #
+  # This job does NOT wait for manual approval.
+  #
+  # It runs only for:
+  #
+  # - push to main
+  # - workflow_dispatch
+  #
+  # It does not run on pull_request to avoid exposing
+  # Kubernetes credentials during PR validation.
+  # =========================================================
 
-          for filename in filenames:
+  server-dry-run:
 
-              path = Path(filename)
+    name: Kubernetes Server-Side Dry Run
 
-              print()
-              print("=" * 60)
-              print(f"Checking tribe/project: {filename}")
-              print("=" * 60)
+    runs-on: ubuntu-latest
 
-              # Expected:
-              #
-              # tribe/environment/applicationset.yaml
+    needs:
+      - validate
 
-              if len(path.parts) != 3:
-                  errors.append(
-                      f"{filename}: invalid path. Expected "
-                      f"<tribe>/<environment>/applicationset.yaml"
-                  )
-                  continue
+    if: |
+      needs.validate.outputs.appset_count != '0' &&
+      (
+        github.event_name == 'workflow_dispatch' ||
+        (
+          github.event_name == 'push' &&
+          github.ref == 'refs/heads/main'
+        )
+      )
 
-              tribe = path.parts[0]
-              environment = path.parts[1]
+    steps:
 
-              print(f"Tribe:       {tribe}")
-              print(f"Environment: {environment}")
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
-              try:
-                  with open(filename) as f:
-                      manifest = yaml.safe_load(f)
 
-              except Exception as exc:
-                  errors.append(
-                      f"{filename}: cannot parse YAML: {exc}"
-                  )
-                  continue
+      - name: Download selected ApplicationSet list
+        uses: actions/download-artifact@v4
+        with:
+          name: selected-applicationsets
+          path: /tmp
 
-              try:
-                  project = (
-                      manifest["spec"]
-                              ["template"]
-                              ["spec"]
-                              ["project"]
-                  )
 
-              except (KeyError, TypeError):
+      - name: Configure Kubernetes for dry-run
+        env:
+          KUBECONFIG_B64: ${{ secrets.KUBECONFIG_B64_DRY_RUN }}
+        shell: bash
+        run: |
 
-                  errors.append(
-                      f"{filename}: missing "
-                      f"spec.template.spec.project"
-                  )
+          mkdir -p ~/.kube
 
-                  continue
+          echo "$KUBECONFIG_B64" \
+            | base64 --decode \
+            > ~/.kube/config
 
-              print(f"Project:     {project}")
+          chmod 600 ~/.kube/config
 
-              if project != tribe:
 
-                  errors.append(
-                      f"{filename}: Argo CD project "
-                      f"'{project}' does not match "
-                      f"tribe '{tribe}'"
-                  )
+      - name: Verify Kubernetes connection
+        run: |
 
-                  print("RESULT: FAIL")
+          kubectl cluster-info
 
-              else:
+          echo
+          kubectl config current-context
 
-                  print("RESULT: PASS")
-                  print(
-                      f"Tribe '{tribe}' matches "
-                      f"Argo CD project '{project}'"
-                  )
 
-          if errors:
+      - name: Verify ApplicationSet CRD
+        run: |
+          kubectl get crd applicationsets.argoproj.io
 
-              print()
-              print("==========================================")
-              print("TRIBE / PROJECT VALIDATION FAILED")
-              print("==========================================")
 
-              for error in errors:
-                  print(f"ERROR: {error}")
+      - name: Server-side ApplicationSet dry-run
+        shell: bash
+        run: |
 
-              sys.exit(1)
+          while read -r file; do
 
-          print()
-          print("All tribe/project validations passed.")
+            [ -z "$file" ] && continue
 
-          PY
+            echo
+            echo "=========================================="
+            echo "Server-side dry-run: $file"
+            echo "=========================================="
 
-  # # =========================================================
-  # # DEPLOYMENT
-  # # =========================================================
-  # deploy:
-  #   name: Deploy ApplicationSet
-  #   runs-on: ubuntu-latest
+            kubectl apply \
+              --dry-run=server \
+              -f "$file"
 
-  #   needs:
-  #     - validate
+          done < /tmp/appset-files.txt
 
-  #   # Deploy ONLY after merge/push to main.
-  #   # Never deploy from a Pull Request.
-  #   if: |
-  #     github.event_name == 'push' &&
-  #     github.ref == 'refs/heads/main'
 
-  #   steps:
-  #     # -----------------------------------------------------
-  #     # Checkout
-  #     # -----------------------------------------------------
-  #     - name: Checkout repository
-  #       uses: actions/checkout@v4
-  #       with:
-  #         fetch-depth: 0
+  # =========================================================
+  # 3. DEPLOY
+  #
+  # This job waits for manual approval.
+  #
+  # The approval happens AFTER:
+  #
+  # - validate
+  # - kubectl dry-run
+  #
+  # Once approved, this job performs:
+  #
+  # kubectl apply -f ...
+  # =========================================================
 
-  #     # -----------------------------------------------------
-  #     # Configure Kubernetes authentication
-  #     #
-  #     # GitHub Secret:
-  #     #
-  #     # KUBECONFIG_B64
-  #     #
-  #     # -----------------------------------------------------
-  #     - name: Configure Kubernetes
-  #       env:
-  #         KUBECONFIG_B64: ${{ secrets.KUBECONFIG_B64 }}
-  #       run: |
-  #         set -e
+  deploy:
 
-  #         mkdir -p ~/.kube
+    name: Deploy ApplicationSet CD
 
-  #         echo "$KUBECONFIG_B64" \
-  #           | base64 --decode \
-  #           > ~/.kube/config
+    runs-on: ubuntu-latest
 
-  #         chmod 600 ~/.kube/config
+    needs:
+      - validate
+      - server-dry-run
 
-  #     # -----------------------------------------------------
-  #     # Verify Kubernetes connectivity
-  #     # -----------------------------------------------------
-  #     - name: Verify Kubernetes connection
-  #       run: |
-  #         kubectl cluster-info
+    if: |
+      needs.validate.outputs.appset_count != '0' &&
+      (
+        github.event_name == 'workflow_dispatch' ||
+        (
+          github.event_name == 'push' &&
+          github.ref == 'refs/heads/main'
+        )
+      )
 
-  #         echo
-  #         echo "Current context:"
-  #         kubectl config current-context
+    environment:
+      name: applicationset-cd
 
-  #     # -----------------------------------------------------
-  #     # Make sure ApplicationSet CRD exists
-  #     # -----------------------------------------------------
-  #     - name: Verify ApplicationSet CRD
-  #       run: |
-  #         kubectl get crd applicationsets.argoproj.io
+    steps:
 
-  #     # -----------------------------------------------------
-  #     # Find ApplicationSets changed by this push
-  #     # -----------------------------------------------------
-  #     - name: Find changed ApplicationSets
-  #       run: |
-  #         set -e
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
-  #         BASE_SHA="${{ github.event.before }}"
-  #         HEAD_SHA="${{ github.sha }}"
 
-  #         echo "Base SHA: ${BASE_SHA}"
-  #         echo "Head SHA: ${HEAD_SHA}"
+      - name: Download selected ApplicationSet list
+        uses: actions/download-artifact@v4
+        with:
+          name: selected-applicationsets
+          path: /tmp
 
-  #         if [ "${BASE_SHA}" = "0000000000000000000000000000000000000000" ]; then
 
-  #           find . \
-  #             -mindepth 3 \
-  #             -maxdepth 3 \
-  #             -type f \
-  #             -name applicationset.yaml \
-  #             | sed 's#^\./##' \
-  #             | sort \
-  #             > /tmp/appset-files.txt
+      - name: Configure Kubernetes for deployment
+        env:
+          KUBECONFIG_B64: ${{ secrets.KUBECONFIG_B64_DEPLOY }}
+        shell: bash
+        run: |
 
-  #         else
+          mkdir -p ~/.kube
 
-  #           git diff \
-  #             --name-only \
-  #             --diff-filter=ACMR \
-  #             "${BASE_SHA}" \
-  #             "${HEAD_SHA}" \
-  #             -- '*/*/applicationset.yaml' \
-  #             > /tmp/appset-files.txt
+          echo "$KUBECONFIG_B64" \
+            | base64 --decode \
+            > ~/.kube/config
 
-  #         fi
+          chmod 600 ~/.kube/config
 
-  #         echo
-  #         echo "ApplicationSets to deploy:"
-  #         echo "------------------------------------------"
 
-  #         cat /tmp/appset-files.txt
+      - name: Verify Kubernetes connection
+        run: |
 
-  #         echo "------------------------------------------"
+          kubectl cluster-info
 
-  #     # -----------------------------------------------------
-  #     # Kubernetes + ApplicationSet CRD validation
-  #     #
-  #     # Nothing is actually created here.
-  #     # -----------------------------------------------------
-  #     - name: Server-side ApplicationSet validation
-  #       run: |
-  #         set -e
+          echo
+          kubectl config current-context
 
-  #         while read -r file; do
 
-  #           [ -z "$file" ] && continue
+      - name: Deploy ApplicationSets
+        shell: bash
+        run: |
 
-  #           echo
-  #           echo "=========================================="
-  #           echo "Server-side validating: $file"
-  #           echo "=========================================="
+          while read -r file; do
 
-  #           kubectl apply \
-  #             --dry-run=server \
-  #             -f "$file"
+            [ -z "$file" ] && continue
 
-  #         done < /tmp/appset-files.txt
+            echo
+            echo "=========================================="
+            echo "Deploying: $file"
+            echo "=========================================="
 
-  #     # -----------------------------------------------------
-  #     # Deploy ApplicationSets
-  #     # -----------------------------------------------------
-  #     - name: Deploy ApplicationSets
-  #       run: |
-  #         set -e
+            kubectl apply \
+              -f "$file"
 
-  #         while read -r file; do
+          done < /tmp/appset-files.txt
 
-  #           [ -z "$file" ] && continue
 
-  #           echo
-  #           echo "=========================================="
-  #           echo "Deploying: $file"
-  #           echo "=========================================="
-
-  #           kubectl apply \
-  #             -f "$file"
-
-  #         done < /tmp/appset-files.txt
-
-  #     # -----------------------------------------------------
-  #     # Show resulting ApplicationSets
-  #     # -----------------------------------------------------
-  #     - name: Show deployed ApplicationSets
-  #       run: |
-  #         kubectl get applicationsets \
-  #           -n argocd
+      - name: Show ApplicationSets
+        run: |
+          kubectl get applicationsets -A
