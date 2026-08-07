@@ -1,0 +1,81 @@
+tribes:
+
+  admin-portal:
+    enabled: false
+    allowed_projects:
+      - dobsy
+      - core-sre
+
+  catalog:
+    enabled: false
+    allowed_projects:
+      - pipeline
+      - core-sre
+
+  commerce:
+    enabled: false
+    allowed_projects:
+      - commerce
+
+  core-sre:
+    enabled: false
+    allowed_projects:
+      - core-sre
+
+  data-pipelines:
+    enabled: false
+    allowed_projects:
+      - pipeline
+      - core-sre
+
+  dataprep:
+    enabled: false
+    allowed_projects:
+      - pipeline
+      - core-sre
+
+  dfa:
+    enabled: true
+    allowed_projects:
+      - dfa
+
+  dobsygpt:
+    enabled: false
+    allowed_projects:
+      - dobsy
+      - core-sre
+
+  doc:
+    enabled: false
+    allowed_projects:
+      - doc
+      - core-sre
+
+  dqm:
+    enabled: false
+    allowed_projects:
+      - dobsy
+      - core-sre
+
+  ige:
+    enabled: true
+    allowed_projects:
+      - ige
+
+  keying-gkeapps:
+    enabled: false
+    allowed_projects:
+      - knl
+      - core-sre
+
+  opintel:
+    enabled: false
+    allowed_projects:
+      - doc
+      - core-sre
+
+  opintel-platform:
+    enabled: false
+    allowed_projects:
+      - dobsy
+      - core-sre
