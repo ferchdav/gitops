@@ -382,7 +382,7 @@ jobs:
       (
         github.event_name == 'workflow_dispatch' ||
         (
-          github.event_name == 'push' && github.ref == 'refs/heads/main'
+          github.event_name == 'push' && ( github.ref == 'refs/heads/dev' || github.ref == 'refs/heads/main' )
         )
       )
 
@@ -401,7 +401,6 @@ jobs:
           name: selected-applicationsets
           path: /tmp
 
-
       - name: Configure Kubernetes for deployment
         env:
           KUBECONFIG_B64: ${{ secrets.KUBECONFIG_B64_DEPLOY }}
@@ -416,35 +415,40 @@ jobs:
 
           chmod 600 ~/.kube/config
 
+      # - name: Verify Kubernetes connection
+      #   run: |
 
-      - name: Verify Kubernetes connection
-        run: |
+      #     kubectl cluster-info
 
-          kubectl cluster-info
+      #     echo
+      #     kubectl config current-context
 
-          echo
-          kubectl config current-context
+      # - name: Deploy ApplicationSets
+      #   shell: bash
+      #   run: |
 
+      #     while read -r file; do
 
-      - name: Deploy ApplicationSets
+      #       [ -z "$file" ] && continue
+
+      #       echo
+      #       echo "=========================================="
+      #       echo "Deploying: $file"
+      #       echo "=========================================="
+
+      #       kubectl apply \
+      #         -f "$file"
+
+      #     done < /tmp/appset-files.txt
+
+      # - name: Show ApplicationSets
+      #   run: |
+      #     kubectl get applicationsets -A
+
+      - name: Show Message
         shell: bash
         run: |
-
-          while read -r file; do
-
-            [ -z "$file" ] && continue
-
             echo
             echo "=========================================="
-            echo "Deploying: $file"
+            echo "Deploying ApplicationSet"
             echo "=========================================="
-
-            kubectl apply \
-              -f "$file"
-
-          done < /tmp/appset-files.txt
-
-
-      - name: Show ApplicationSets
-        run: |
-          kubectl get applicationsets -A
