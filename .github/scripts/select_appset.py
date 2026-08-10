@@ -22,7 +22,6 @@ def load_config(filename):
     result = {}
 
     for tribe, config in tribes.items():
-
         if not isinstance(config, dict):
             raise ValueError(
                 f"Configuration for tribe '{tribe}' must be a mapping"
@@ -66,6 +65,22 @@ def load_changed_files(filename):
             for line in f
             if line.strip()
         ]
+
+
+def environment_to_directory(environment):
+    mapping = {
+        "dev": "dev",
+        "uat": "uat",
+        "prd": "prod",
+    }
+
+    if environment not in mapping:
+        raise ValueError(
+            f"Invalid environment '{environment}'. "
+            "Expected one of: dev, uat, prd"
+        )
+
+    return mapping[environment]
 
 
 def application_sets_for_tribe(tribe):
@@ -154,12 +169,17 @@ def main():
         help="Select only ApplicationSets for one tribe",
     )
 
+    parser.add_argument(
+        "--target-environment",
+        required=False,
+        help="Select only one environment: dev, uat, prd",
+    )
+
     args = parser.parse_args()
 
     try:
         current_config = load_config(args.config)
         base_config = load_config(args.base_config)
-
     except Exception as exc:
         print(f"ERROR: Invalid tribe configuration: {exc}")
         sys.exit(1)
@@ -185,60 +205,67 @@ def main():
     selected = set()
 
     # --------------------------------------------------------
-    # Manual workflow_dispatch with target tribe
-    #
-    # This is the important path for controlled deployments.
+    # Manual workflow_dispatch with target tribe + environment
     #
     # Example:
     #
     # --target-tribe dfa
+    # --target-environment dev
     #
     # selects:
     #
-    # dfa/*/applicationset.yaml
+    # dfa/dev/applicationset.yaml
     # --------------------------------------------------------
 
-    if args.target_tribe:
+    if args.target_tribe or args.target_environment:
+        if not args.target_tribe or not args.target_environment:
+            print()
+            print("ERROR: --target-tribe and --target-environment must be used together.")
+            sys.exit(1)
 
         target_tribe = args.target_tribe.strip()
+        target_environment = args.target_environment.strip()
+        target_directory = environment_to_directory(target_environment)
 
         print()
         print("============================================================")
-        print("Target tribe selection")
+        print("Target selection")
         print("============================================================")
-        print(f"Target tribe: {target_tribe}")
+        print(f"Target tribe:       {target_tribe}")
+        print(f"Target environment: {target_environment}")
+        print(f"Target directory:   {target_directory}")
 
         validate_target_tribe(
             target_tribe,
             current_config,
         )
 
-        for filename in application_sets_for_tribe(target_tribe):
-            print(f"SELECTED: {filename}")
-            selected.add(filename)
+        target_file = (
+            Path(target_tribe)
+            / target_directory
+            / "applicationset.yaml"
+        )
 
-    # --------------------------------------------------------
-    # workflow_dispatch without target tribe
-    #
-    # Keep this for compatibility, but the workflow should not
-    # use it for deployment anymore.
-    # --------------------------------------------------------
+        if not target_file.exists():
+            print()
+            print("ERROR: Selected ApplicationSet file does not exist.")
+            print(f"Expected file: {target_file}")
+            print()
+            print("Current mapping:")
+            print("  environment dev -> directory dev")
+            print("  environment uat -> directory uat")
+            print("  environment prd -> directory prod")
+            sys.exit(1)
+
+        print(f"SELECTED: {target_file}")
+        selected.add(str(target_file))
 
     elif args.all_enabled:
-
         for tribe in enabled_tribes:
             for filename in application_sets_for_tribe(tribe):
                 selected.add(filename)
 
     else:
-
-        # ----------------------------------------------------
-        # Normal PR / push behavior:
-        #
-        # Select changed ApplicationSets only if their tribe
-        # is currently enabled.
-        # ----------------------------------------------------
-
         changed_files = load_changed_files(
             args.changed_files
         )
@@ -249,7 +276,6 @@ def main():
         print("============================================================")
 
         for filename in changed_files:
-
             path = Path(filename)
 
             if len(path.parts) != 3:
@@ -278,46 +304,26 @@ def main():
             print(f"SELECTED: {filename}")
             selected.add(filename)
 
-        # ----------------------------------------------------
-        # Configuration changes
-        #
-        # If an enabled tribe's configuration changed,
-        # process ALL of its ApplicationSets.
-        #
-        # This handles:
-        #
-        # enabled: false -> true
-        #
-        # and changes to allowed_projects.
-        # ----------------------------------------------------
-
         print()
         print("============================================================")
         print("Tribe configuration changes")
         print("============================================================")
 
         for tribe in sorted(enabled_tribes):
-
             current = current_config.get(tribe)
             previous = base_config.get(tribe)
 
             if current != previous:
-
                 print(
                     f"Configuration changed for enabled tribe: {tribe}"
                 )
 
                 for filename in application_sets_for_tribe(tribe):
-
                     print(
                         f"SELECTED due to config change: {filename}"
                     )
 
                     selected.add(filename)
-
-    # --------------------------------------------------------
-    # Write result
-    # --------------------------------------------------------
 
     selected = sorted(selected)
 

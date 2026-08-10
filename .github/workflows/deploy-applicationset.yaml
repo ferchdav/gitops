@@ -24,20 +24,45 @@ on:
 
   workflow_dispatch:
     inputs:
-      deploy_action:
-        description: "Choose what to run"
-        required: true
-        default: validate
-        type: choice
-        options:
-          - validate
-          - deploy
-
-      target_tribe:
-        description: "Tribe directory to validate/deploy, for example dfa or ige"
+      tribe:
+        description: "Tribe directory"
         required: true
         default: dfa
-        type: string
+        type: choice
+        options:
+          - dfa
+          - ige
+
+      target_environment:
+        description: "Environment. prd maps to the prod directory."
+        required: true
+        default: dev
+        type: choice
+        options:
+          - dev
+          - uat
+          - prd
+
+      clusterName:
+        description: "Target Kubernetes cluster"
+        required: true
+        default: npe
+        type: choice
+        options:
+          - npe
+          - uat
+          - prd
+
+      kubectlAction:
+        description: "Kubectl action to execute"
+        required: true
+        default: list_appset
+        type: choice
+        options:
+          - apply_appset
+          - describe_appset
+          - list_appset
+          - delete_appset
 
 permissions:
   contents: read
@@ -55,7 +80,9 @@ jobs:
   #   validates changed enabled ApplicationSets
   #
   # workflow_dispatch:
-  #   validates all ApplicationSets for target_tribe only
+  #   validates exactly:
+  #
+  #   <tribe>/<environment-directory>/applicationset.yaml
   #
   # Includes:
   #
@@ -123,8 +150,10 @@ jobs:
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
 
             echo "Manual workflow execution."
-            echo "Target tribe: ${{ inputs.target_tribe }}"
-            echo "The selector will choose only this tribe."
+            echo "Selected tribe:       ${{ inputs.tribe }}"
+            echo "Selected environment: ${{ inputs.target_environment }}"
+            echo "Selected cluster:     ${{ inputs.clusterName }}"
+            echo "Selected action:      ${{ inputs.kubectlAction }}"
 
             find . \
               -mindepth 3 \
@@ -204,7 +233,8 @@ jobs:
               --config .github/config/tribe-projects.yaml \
               --changed-files /tmp/appset-files-all.txt \
               --output /tmp/appset-files.txt \
-              --target-tribe "${{ inputs.target_tribe }}"
+              --target-tribe "${{ inputs.tribe }}" \
+              --target-environment "${{ inputs.target_environment }}"
 
           else
 
@@ -276,51 +306,175 @@ jobs:
             --files /tmp/appset-files.txt
 
 
-      - name: Configure Kubernetes for dry-run
-        if: steps.select.outputs.count != '0'
-        env:
-          KUBECONFIG_B64: ${{ secrets.KUBECONFIG_B64_DRY_RUN }}
+      # -----------------------------------------------------
+      # Safety check for manual workflow_dispatch:
+      #
+      # dev -> npe
+      # uat -> uat
+      # prd -> prd
+      #
+      # This prevents selecting:
+      #
+      # environment = dev
+      # clusterName  = prd
+      # -----------------------------------------------------
+
+      - name: Validate environment and cluster match
+        if: github.event_name == 'workflow_dispatch'
         shell: bash
         run: |
 
-          mkdir -p ~/.kube
+          set -e
 
-          echo "$KUBECONFIG_B64" \
-            | base64 --decode \
-            > ~/.kube/config
+          case "${{ inputs.target_environment }}" in
+            dev)
+              EXPECTED_CLUSTER="npe"
+              ;;
+            uat)
+              EXPECTED_CLUSTER="uat"
+              ;;
+            prd)
+              EXPECTED_CLUSTER="prd"
+              ;;
+            *)
+              echo "Invalid environment: ${{ inputs.target_environment }}"
+              exit 1
+              ;;
+          esac
 
-          chmod 600 ~/.kube/config
+          if [ "${{ inputs.clusterName }}" != "${EXPECTED_CLUSTER}" ]; then
+
+            echo "ERROR: Environment and cluster do not match."
+            echo "Selected environment: ${{ inputs.target_environment }}"
+            echo "Selected cluster:     ${{ inputs.clusterName }}"
+            echo "Expected cluster:     ${EXPECTED_CLUSTER}"
+
+            exit 1
+
+          fi
+
+          echo "Environment/cluster match validated."
 
 
-      - name: Verify Kubernetes connection
-        if: steps.select.outputs.count != '0'
-        run: |
-
-          kubectl cluster-info
-
-          echo
-          kubectl config current-context
-
-
-      - name: Verify ApplicationSet CRD
-        if: steps.select.outputs.count != '0'
-        run: |
-          kubectl get crd applicationsets.argoproj.io
-
+      # -----------------------------------------------------
+      # Kubernetes server-side dry-run.
+      #
+      # For pull_request and push:
+      #   cluster is inferred from the file path:
+      #
+      #   dev  -> npe
+      #   uat  -> uat
+      #   prod -> prd
+      #
+      # For workflow_dispatch:
+      #   clusterName input is validated and used.
+      # -----------------------------------------------------
 
       - name: Kubernetes server-side dry-run
         if: steps.select.outputs.count != '0'
+        env:
+          KUBECONFIG_B64_NPE: ${{ secrets.KUBECONFIG_B64_NPE }}
+          KUBECONFIG_B64_UAT: ${{ secrets.KUBECONFIG_B64_UAT }}
+          KUBECONFIG_B64_PRD: ${{ secrets.KUBECONFIG_B64_PRD }}
         shell: bash
         run: |
+
+          set -euo pipefail
+
+          configure_cluster() {
+
+            local cluster="$1"
+            local kubeconfig_b64=""
+
+            case "${cluster}" in
+              npe)
+                kubeconfig_b64="${KUBECONFIG_B64_NPE}"
+                ;;
+              uat)
+                kubeconfig_b64="${KUBECONFIG_B64_UAT}"
+                ;;
+              prd)
+                kubeconfig_b64="${KUBECONFIG_B64_PRD}"
+                ;;
+              *)
+                echo "ERROR: Invalid cluster: ${cluster}"
+                exit 1
+                ;;
+            esac
+
+            if [ -z "${kubeconfig_b64}" ]; then
+              echo "ERROR: Missing kubeconfig secret for cluster: ${cluster}"
+              exit 1
+            fi
+
+            mkdir -p ~/.kube
+
+            echo "${kubeconfig_b64}" \
+              | base64 --decode \
+              > ~/.kube/config
+
+            chmod 600 ~/.kube/config
+          }
+
+
+          cluster_for_environment_directory() {
+
+            local environment_directory="$1"
+
+            case "${environment_directory}" in
+              dev)
+                echo "npe"
+                ;;
+              uat)
+                echo "uat"
+                ;;
+              prod|prd)
+                echo "prd"
+                ;;
+              *)
+                echo "ERROR"
+                ;;
+            esac
+          }
+
 
           while read -r file; do
 
             [ -z "$file" ] && continue
 
+            tribe_directory="$(echo "$file" | cut -d/ -f1)"
+            environment_directory="$(echo "$file" | cut -d/ -f2)"
+
+            if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+
+              cluster="${{ inputs.clusterName }}"
+
+            else
+
+              cluster="$(cluster_for_environment_directory "${environment_directory}")"
+
+              if [ "${cluster}" = "ERROR" ]; then
+                echo "ERROR: Cannot infer cluster from path: ${file}"
+                echo "Environment directory: ${environment_directory}"
+                exit 1
+              fi
+
+            fi
+
             echo
             echo "=========================================="
-            echo "Server-side dry-run: $file"
+            echo "Server-side dry-run"
             echo "=========================================="
+            echo "File:        ${file}"
+            echo "Tribe:       ${tribe_directory}"
+            echo "Environment: ${environment_directory}"
+            echo "Cluster:     ${cluster}"
+            echo "=========================================="
+
+            configure_cluster "${cluster}"
+
+            kubectl cluster-info
+            kubectl get crd applicationsets.argoproj.io
 
             kubectl apply \
               --dry-run=server \
@@ -336,21 +490,25 @@ jobs:
 
 
   # =========================================================
-  # DEPLOY
+  # KUBECTL ACTION
   #
-  # Runs only when:
+  # Runs only for workflow_dispatch.
   #
-  # - workflow_dispatch
-  # - deploy_action = deploy
+  # It executes one kubectl action against exactly one selected
+  # ApplicationSet file:
   #
-  # Uses the same selected ApplicationSet list generated by
-  # the validate job.
+  # <tribe>/<environment-directory>/applicationset.yaml
   #
-  # Therefore it deploys only target_tribe.
+  # Actions:
+  #
+  # - apply_appset
+  # - describe_appset
+  # - list_appset
+  # - delete_appset
   # =========================================================
 
-  deploy:
-    name: Deploy ApplicationSet CD
+  kubectl-action:
+    name: Run kubectl ApplicationSet Action
 
     runs-on: ubuntu-latest
 
@@ -359,8 +517,7 @@ jobs:
 
     if: |
       needs.validate.outputs.appset_count != '0' &&
-      github.event_name == 'workflow_dispatch' &&
-      inputs.deploy_action == 'deploy'
+      github.event_name == 'workflow_dispatch'
 
     steps:
 
@@ -375,36 +532,62 @@ jobs:
           path: /tmp
 
 
-      - name: Configure Kubernetes for deployment
+      - name: Configure Kubernetes
         env:
-          KUBECONFIG_B64: ${{ secrets.KUBECONFIG_B64_DEPLOY }}
+          KUBECONFIG_B64_NPE: ${{ secrets.KUBECONFIG_B64_NPE }}
+          KUBECONFIG_B64_UAT: ${{ secrets.KUBECONFIG_B64_UAT }}
+          KUBECONFIG_B64_PRD: ${{ secrets.KUBECONFIG_B64_PRD }}
         shell: bash
         run: |
 
+          set -euo pipefail
+
+          case "${{ inputs.clusterName }}" in
+            npe)
+              KUBECONFIG_B64="${KUBECONFIG_B64_NPE}"
+              ;;
+            uat)
+              KUBECONFIG_B64="${KUBECONFIG_B64_UAT}"
+              ;;
+            prd)
+              KUBECONFIG_B64="${KUBECONFIG_B64_PRD}"
+              ;;
+            *)
+              echo "ERROR: Invalid clusterName: ${{ inputs.clusterName }}"
+              exit 1
+              ;;
+          esac
+
+          if [ -z "${KUBECONFIG_B64}" ]; then
+            echo "ERROR: Missing kubeconfig secret for cluster: ${{ inputs.clusterName }}"
+            exit 1
+          fi
+
           mkdir -p ~/.kube
 
-          echo "$KUBECONFIG_B64" \
+          echo "${KUBECONFIG_B64}" \
             | base64 --decode \
             > ~/.kube/config
 
           chmod 600 ~/.kube/config
 
-
-      - name: Verify Kubernetes connection
-        run: |
-
           kubectl cluster-info
 
           echo
+          echo "Current context:"
           kubectl config current-context
 
 
-      - name: Deploy ApplicationSets
+      - name: Run selected kubectl action
         shell: bash
         run: |
 
-          echo "Deploy action: ${{ inputs.deploy_action }}"
-          echo "Target tribe:  ${{ inputs.target_tribe }}"
+          set -euo pipefail
+
+          echo "Selected tribe:       ${{ inputs.tribe }}"
+          echo "Selected environment: ${{ inputs.target_environment }}"
+          echo "Selected cluster:     ${{ inputs.clusterName }}"
+          echo "Selected action:      ${{ inputs.kubectlAction }}"
 
           while read -r file; do
 
@@ -412,15 +595,57 @@ jobs:
 
             echo
             echo "=========================================="
-            echo "Deploying: $file"
+            echo "Target ApplicationSet"
+            echo "=========================================="
+            echo "File: ${file}"
             echo "=========================================="
 
-            kubectl apply \
-              -f "$file"
+            case "${{ inputs.kubectlAction }}" in
+
+              apply_appset)
+
+                echo "Running: kubectl apply -f ${file}"
+
+                kubectl apply \
+                  -f "$file"
+
+                ;;
+
+              describe_appset)
+
+                echo "Running: kubectl describe -f ${file}"
+
+                kubectl describe \
+                  -f "$file"
+
+                ;;
+
+              list_appset)
+
+                echo "Running: kubectl get -f ${file} -o wide"
+
+                kubectl get \
+                  -f "$file" \
+                  -o wide
+
+                ;;
+
+              delete_appset)
+
+                echo "Running: kubectl delete -f ${file}"
+
+                kubectl delete \
+                  -f "$file"
+
+                ;;
+
+              *)
+
+                echo "ERROR: Invalid kubectlAction: ${{ inputs.kubectlAction }}"
+                exit 1
+
+                ;;
+
+            esac
 
           done < /tmp/appset-files.txt
-
-
-      - name: Show ApplicationSets
-        run: |
-          kubectl get applicationsets -A
