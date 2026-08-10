@@ -424,11 +424,11 @@ jobs:
             echo "=========================================="
             echo "Server-side dry-run"
             echo "=========================================="
-            echo "File:        ${file}"
-            echo "Tribe:       ${tribe_directory}"
-            echo "Environment: ${environment_directory}"
-            echo "Cluster:     ${cluster}"
-            echo "=========================================="
+        #     echo "File:        ${file}"
+        #     echo "Tribe:       ${tribe_directory}"
+        #     echo "Environment: ${environment_directory}"
+        #     echo "Cluster:     ${cluster}"
+        #     echo "=========================================="
 
         #     configure_cluster "${cluster}"
 
