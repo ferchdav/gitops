@@ -8,22 +8,18 @@ import yaml
 
 
 def load_config(filename):
-
     with open(filename, "r", encoding="utf-8") as f:
         document = yaml.safe_load(f) or {}
 
     tribes = document.get("tribes", {})
 
     if not isinstance(tribes, dict):
-        raise ValueError(
-            "'tribes' must be a YAML mapping"
-        )
+        raise ValueError("'tribes' must be a YAML mapping")
 
     return tribes
 
 
 def load_files(filename):
-
     with open(filename, "r", encoding="utf-8") as f:
         return [
             line.strip()
@@ -33,7 +29,6 @@ def load_files(filename):
 
 
 def main():
-
     parser = argparse.ArgumentParser()
 
     parser.add_argument(
@@ -60,7 +55,6 @@ def main():
     errors = []
 
     for filename in filenames:
-
         path = Path(filename)
 
         print()
@@ -69,11 +63,12 @@ def main():
         print("============================================================")
 
         # ----------------------------------------------------
-        # Validate directory structure
+        # Validate directory structure:
+        #
+        # <tribe>/<environment>/applicationset.yaml
         # ----------------------------------------------------
 
         if len(path.parts) != 3:
-
             errors.append(
                 f"{filename}: invalid path. Expected "
                 "<tribe>/<environment>/applicationset.yaml"
@@ -88,11 +83,10 @@ def main():
         print(f"Environment: {environment}")
 
         # ----------------------------------------------------
-        # Validate tribe exists
+        # Validate tribe exists and is enabled
         # ----------------------------------------------------
 
         if tribe not in config:
-
             errors.append(
                 f"{filename}: tribe '{tribe}' is not configured"
             )
@@ -101,12 +95,7 @@ def main():
 
         tribe_config = config[tribe]
 
-        # ----------------------------------------------------
-        # Verify tribe is enabled
-        # ----------------------------------------------------
-
         if not tribe_config.get("enabled", False):
-
             errors.append(
                 f"{filename}: tribe '{tribe}' is not enabled"
             )
@@ -119,7 +108,6 @@ def main():
         )
 
         if not allowed_projects:
-
             errors.append(
                 f"{filename}: no allowed projects configured "
                 f"for tribe '{tribe}'"
@@ -133,21 +121,18 @@ def main():
         )
 
         # ----------------------------------------------------
-        # Parse ApplicationSet
+        # Parse YAML
         # ----------------------------------------------------
 
         try:
-
             with open(
                 filename,
                 "r",
                 encoding="utf-8",
             ) as f:
-
                 manifest = yaml.safe_load(f)
 
         except Exception as exc:
-
             errors.append(
                 f"{filename}: YAML parsing error: {exc}"
             )
@@ -155,7 +140,6 @@ def main():
             continue
 
         if not isinstance(manifest, dict):
-
             errors.append(
                 f"{filename}: YAML document must contain an object"
             )
@@ -169,7 +153,6 @@ def main():
         api_version = manifest.get("apiVersion")
 
         if api_version != "argoproj.io/v1alpha1":
-
             errors.append(
                 f"{filename}: apiVersion must be "
                 "'argoproj.io/v1alpha1'"
@@ -182,7 +165,6 @@ def main():
         kind = manifest.get("kind")
 
         if kind != "ApplicationSet":
-
             errors.append(
                 f"{filename}: kind must be 'ApplicationSet'"
             )
@@ -194,13 +176,11 @@ def main():
         metadata = manifest.get("metadata")
 
         if not isinstance(metadata, dict):
-
             errors.append(
                 f"{filename}: metadata is required"
             )
 
         elif not metadata.get("name"):
-
             errors.append(
                 f"{filename}: metadata.name is required"
             )
@@ -212,7 +192,6 @@ def main():
         spec = manifest.get("spec")
 
         if not isinstance(spec, dict):
-
             errors.append(
                 f"{filename}: spec is required"
             )
@@ -220,7 +199,6 @@ def main():
             continue
 
         if not spec.get("generators"):
-
             errors.append(
                 f"{filename}: spec.generators is required"
             )
@@ -232,7 +210,6 @@ def main():
         template = spec.get("template")
 
         if not isinstance(template, dict):
-
             errors.append(
                 f"{filename}: spec.template is required"
             )
@@ -242,7 +219,6 @@ def main():
         template_spec = template.get("spec")
 
         if not isinstance(template_spec, dict):
-
             errors.append(
                 f"{filename}: spec.template.spec is required"
             )
@@ -256,7 +232,6 @@ def main():
         project = template_spec.get("project")
 
         if not project:
-
             errors.append(
                 f"{filename}: "
                 "spec.template.spec.project is required"
@@ -267,11 +242,10 @@ def main():
         print(f"Actual project:  {project}")
 
         # ----------------------------------------------------
-        # Validate project against mapping
+        # Validate project against tribe mapping
         # ----------------------------------------------------
 
         if project not in allowed_projects:
-
             errors.append(
                 f"{filename}: Argo CD project '{project}' "
                 f"is not allowed for tribe '{tribe}'. "
@@ -282,15 +256,9 @@ def main():
             print("Result:          FAIL")
 
         else:
-
             print("Result:          PASS")
 
-    # --------------------------------------------------------
-    # Final result
-    # --------------------------------------------------------
-
     if errors:
-
         print()
         print("============================================================")
         print("APPLICATIONSET VALIDATION FAILED")

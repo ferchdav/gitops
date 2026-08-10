@@ -24,10 +24,19 @@ on:
 
   workflow_dispatch:
     inputs:
+      deploy_action:
+        description: "Choose whether to only validate or run the selected kubectl action"
+        required: true
+        default: validate
+        type: choice
+        options:
+          - validate
+          - deploy
+
       tribe:
         description: "Tribe directory"
         required: true
-        default: ige
+        default: dfa
         type: choice
         options:
           - dfa
@@ -54,9 +63,9 @@ on:
           - prd
 
       kubectlAction:
-        description: "Kubectl action to execute"
+        description: "Kubectl action to execute only when deploy_action=deploy"
         required: true
-        default: apply_appset
+        default: list_appset
         type: choice
         options:
           - apply_appset
@@ -113,28 +122,33 @@ jobs:
           pip install pyyaml yamllint
 
 
-      - name: Determine base commit
-        id: base
+      - name: Determine commits
+        id: commits
         shell: bash
         run: |
 
           if [ "${{ github.event_name }}" = "pull_request" ]; then
 
             BASE_SHA="${{ github.event.pull_request.base.sha }}"
+            HEAD_SHA="${{ github.event.pull_request.head.sha }}"
 
           elif [ "${{ github.event_name }}" = "push" ]; then
 
             BASE_SHA="${{ github.event.before }}"
+            HEAD_SHA="${{ github.sha }}"
 
           else
 
             BASE_SHA=""
+            HEAD_SHA="${{ github.sha }}"
 
           fi
 
-          echo "sha=${BASE_SHA}" >> "$GITHUB_OUTPUT"
+          echo "base=${BASE_SHA}" >> "$GITHUB_OUTPUT"
+          echo "head=${HEAD_SHA}" >> "$GITHUB_OUTPUT"
 
           echo "Base SHA: ${BASE_SHA}"
+          echo "Head SHA: ${HEAD_SHA}"
 
 
       - name: Find candidate ApplicationSets
@@ -143,17 +157,19 @@ jobs:
 
           set -e
 
-          BASE_SHA="${{ steps.base.outputs.sha }}"
+          BASE_SHA="${{ steps.commits.outputs.base }}"
+          HEAD_SHA="${{ steps.commits.outputs.head }}"
 
           touch /tmp/appset-files-all.txt
 
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
 
             echo "Manual workflow execution."
-            echo "Selected tribe:       ${{ inputs.tribe }}"
-            echo "Selected environment: ${{ inputs.target_environment }}"
-            echo "Selected cluster:     ${{ inputs.clusterName }}"
-            echo "Selected action:      ${{ inputs.kubectlAction }}"
+            echo "Deploy action:         ${{ inputs.deploy_action }}"
+            echo "Selected tribe:        ${{ inputs.tribe }}"
+            echo "Selected environment:  ${{ inputs.target_environment }}"
+            echo "Selected cluster:      ${{ inputs.clusterName }}"
+            echo "Selected kubectlAction:${{ inputs.kubectlAction }}"
 
             find . \
               -mindepth 3 \
@@ -182,7 +198,7 @@ jobs:
               --name-only \
               --diff-filter=ACMR \
               "${BASE_SHA}" \
-              "${{ github.sha }}" \
+              "${HEAD_SHA}" \
               -- '*/*/applicationset.yaml' \
               > /tmp/appset-files-all.txt
 
@@ -197,7 +213,7 @@ jobs:
         shell: bash
         run: |
 
-          BASE_SHA="${{ steps.base.outputs.sha }}"
+          BASE_SHA="${{ steps.commits.outputs.base }}"
 
           echo "tribes: {}" \
             > /tmp/tribe-projects-base.yaml
@@ -313,7 +329,7 @@ jobs:
       # uat -> uat
       # prd -> prd
       #
-      # This prevents selecting:
+      # This prevents:
       #
       # environment = dev
       # clusterName  = prd
@@ -359,14 +375,16 @@ jobs:
       # -----------------------------------------------------
       # Kubernetes server-side dry-run.
       #
-      # For pull_request and push:
+      # This is part of validation.
+      #
+      # pull_request and push:
       #   cluster is inferred from the file path:
       #
       #   dev  -> npe
       #   uat  -> uat
       #   prod -> prd
       #
-      # For workflow_dispatch:
+      # workflow_dispatch:
       #   clusterName input is validated and used.
       # -----------------------------------------------------
 
@@ -492,19 +510,14 @@ jobs:
   # =========================================================
   # KUBECTL ACTION
   #
-  # Runs only for workflow_dispatch.
+  # Runs only when:
   #
-  # It executes one kubectl action against exactly one selected
-  # ApplicationSet file:
+  # - workflow_dispatch
+  # - deploy_action = deploy
+  #
+  # It executes the selected kubectlAction against exactly:
   #
   # <tribe>/<environment-directory>/applicationset.yaml
-  #
-  # Actions:
-  #
-  # - apply_appset
-  # - describe_appset
-  # - list_appset
-  # - delete_appset
   # =========================================================
 
   kubectl-action:
@@ -517,7 +530,8 @@ jobs:
 
     if: |
       needs.validate.outputs.appset_count != '0' &&
-      github.event_name == 'workflow_dispatch'
+      github.event_name == 'workflow_dispatch' &&
+      inputs.deploy_action == 'deploy'
 
     steps:
 
@@ -584,10 +598,11 @@ jobs:
 
           set -euo pipefail
 
-          echo "Selected tribe:       ${{ inputs.tribe }}"
-          echo "Selected environment: ${{ inputs.target_environment }}"
-          echo "Selected cluster:     ${{ inputs.clusterName }}"
-          echo "Selected action:      ${{ inputs.kubectlAction }}"
+          echo "Deploy action:          ${{ inputs.deploy_action }}"
+          echo "Selected tribe:         ${{ inputs.tribe }}"
+          echo "Selected environment:   ${{ inputs.target_environment }}"
+          echo "Selected cluster:       ${{ inputs.clusterName }}"
+          echo "Selected kubectlAction: ${{ inputs.kubectlAction }}"
 
           while read -r file; do
 
