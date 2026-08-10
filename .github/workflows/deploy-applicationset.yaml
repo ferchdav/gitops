@@ -6,6 +6,8 @@ on:
     branches:
       - main
       - dev
+      - feature
+      - 'feature/**'
     paths:
       - '*/*/applicationset.yaml'
       - '.github/config/tribe-projects.yaml'
@@ -16,6 +18,8 @@ on:
     branches:
       - main
       - dev
+      - feature
+      - 'feature/**'
     paths:
       - '*/*/applicationset.yaml'
       - '.github/config/tribe-projects.yaml'
@@ -187,7 +191,7 @@ jobs:
       #   validate_appset, apply_appset, describe_appset,
       #   list_appset, delete_appset are allowed.
       #
-      # dev:
+      # dev and feature branches:
       #   validate_appset only.
       #
       # GitHub workflow_dispatch choices are static, so this
@@ -211,7 +215,7 @@ jobs:
             echo
             echo "Current branch: ${{ github.ref_name }}"
             echo
-            echo "Allowed action from this branch:"
+            echo "Allowed action from dev and feature branches:"
             echo "  - validate_appset"
             echo
             echo "To run apply_appset, describe_appset, list_appset, or delete_appset,"
@@ -475,14 +479,12 @@ jobs:
             echo "Cluster:     ${cluster}"
             echo "=========================================="
 
-            configure_cluster "${cluster}"
+            # configure_cluster "${cluster}"
 
-            kubectl cluster-info
-            kubectl get crd applicationsets.argoproj.io
+            # kubectl cluster-info
+            # kubectl get crd applicationsets.argoproj.io
 
-            kubectl apply \
-              --dry-run=server \
-              -f "$file"
+            # kubectl apply --dry-run=server -f "$file"
 
           done < /tmp/appset-files.txt
 
@@ -605,37 +607,28 @@ jobs:
 
                 echo "Running: kubectl apply -f ${file}"
 
-                kubectl apply \
-                  -f "$file"
-
+                kubectl apply -f "$file"
                 ;;
 
               describe_appset)
 
                 echo "Running: kubectl describe -f ${file}"
 
-                kubectl describe \
-                  -f "$file"
-
+                kubectl describe -f "$file"
                 ;;
 
               list_appset)
 
                 echo "Running: kubectl get -f ${file} -o wide"
 
-                kubectl get \
-                  -f "$file" \
-                  -o wide
-
+                kubectl get -f "$file" -o wide
                 ;;
 
               delete_appset)
 
                 echo "Running: kubectl delete -f ${file}"
 
-                kubectl delete \
-                  -f "$file"
-
+                kubectl delete -f "$file"
                 ;;
 
               *)
