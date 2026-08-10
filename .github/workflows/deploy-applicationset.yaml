@@ -436,7 +436,7 @@ jobs:
               uat)
                 echo "uat"
                 ;;
-              prod|prd)
+              prd)
                 echo "prd"
                 ;;
               *)

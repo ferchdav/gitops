@@ -71,7 +71,7 @@ def environment_to_directory(environment):
     mapping = {
         "dev": "dev",
         "uat": "uat",
-        "prd": "prod",
+        "prd": "prd",
     }
 
     if environment not in mapping:
