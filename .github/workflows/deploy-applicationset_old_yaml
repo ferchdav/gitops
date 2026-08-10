@@ -4,8 +4,8 @@ on:
 
   pull_request:
     branches:
-      - dev
       - main
+      - dev
     paths:
       - '*/*/applicationset.yaml'
       - '.github/config/tribe-projects.yaml'
@@ -14,9 +14,8 @@ on:
 
   push:
     branches:
-      - dev
       - main
-
+      - dev
     paths:
       - '*/*/applicationset.yaml'
       - '.github/config/tribe-projects.yaml'
@@ -34,6 +33,12 @@ on:
           - validate
           - deploy
 
+      target_tribe:
+        description: "Tribe directory to validate/deploy, for example dfa or ige"
+        required: true
+        default: dfa
+        type: string
+
 permissions:
   contents: read
 
@@ -43,23 +48,23 @@ jobs:
   # =========================================================
   # VALIDATE
   #
-  # Runs for:
+  # pull_request:
+  #   validates changed enabled ApplicationSets
   #
-  # - pull_request
-  # - push
-  # - workflow_dispatch + validate
-  # - workflow_dispatch + deploy
+  # push:
+  #   validates changed enabled ApplicationSets
+  #
+  # workflow_dispatch:
+  #   validates all ApplicationSets for target_tribe only
   #
   # Includes:
   #
-  # - YAML syntax validation
-  # - ApplicationSet structure validation
-  # - tribe/project mapping validation
+  # - YAML validation
+  # - ApplicationSet validation
   # - kubectl apply --dry-run=server
   # =========================================================
 
   validate:
-
     name: Validate ApplicationSet
 
     runs-on: ubuntu-latest
@@ -105,7 +110,7 @@ jobs:
           echo "Base SHA: ${BASE_SHA}"
 
 
-      - name: Find changed ApplicationSets
+      - name: Find candidate ApplicationSets
         shell: bash
         run: |
 
@@ -118,7 +123,8 @@ jobs:
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
 
             echo "Manual workflow execution."
-            echo "Selecting all enabled ApplicationSets."
+            echo "Target tribe: ${{ inputs.target_tribe }}"
+            echo "The selector will choose only this tribe."
 
             find . \
               -mindepth 3 \
@@ -198,7 +204,7 @@ jobs:
               --config .github/config/tribe-projects.yaml \
               --changed-files /tmp/appset-files-all.txt \
               --output /tmp/appset-files.txt \
-              --all-enabled
+              --target-tribe "${{ inputs.target_tribe }}"
 
           else
 
@@ -270,24 +276,6 @@ jobs:
             --files /tmp/appset-files.txt
 
 
-      - name: Nothing to validate
-        if: steps.select.outputs.count == '0'
-        run: |
-          echo "No ApplicationSets from enabled tribes require validation."
-
-      # -----------------------------------------------------
-      # Kubernetes dry-run is now part of VALIDATE.
-      #
-      # It runs on:
-      #
-      # - pull_request
-      # - push
-      # - workflow_dispatch + validate
-      # - workflow_dispatch + deploy
-      #
-      # Nothing is deployed here.
-      # -----------------------------------------------------
-
       - name: Configure Kubernetes for dry-run
         if: steps.select.outputs.count != '0'
         env:
@@ -304,59 +292,61 @@ jobs:
           chmod 600 ~/.kube/config
 
 
-    #   - name: Verify Kubernetes connection
-    #     if: steps.select.outputs.count != '0'
-    #     run: |
+      - name: Verify Kubernetes connection
+        if: steps.select.outputs.count != '0'
+        run: |
 
-    #       kubectl cluster-info
+          kubectl cluster-info
 
-    #       echo
-    #       kubectl config current-context
-
-
-    #   - name: Verify ApplicationSet CRD
-    #     if: steps.select.outputs.count != '0'
-    #     run: |
-    #       kubectl get crd applicationsets.argoproj.io
+          echo
+          kubectl config current-context
 
 
-    #   - name: Kubernetes server-side dry-run
-    #     if: steps.select.outputs.count != '0'
-    #     shell: bash
-    #     run: |
-
-    #       while read -r file; do
-
-    #         [ -z "$file" ] && continue
-
-    #         echo
-    #         echo "=========================================="
-    #         echo "Server-side dry-run: $file"
-    #         echo "=========================================="
-
-    #         kubectl apply \
-    #           --dry-run=server \
-    #           -f "$file"
-
-    #       done < /tmp/appset-files.txt
+      - name: Verify ApplicationSet CRD
+        if: steps.select.outputs.count != '0'
+        run: |
+          kubectl get crd applicationsets.argoproj.io
 
 
-    #   - name: Nothing to validate
-    #     if: steps.select.outputs.count == '0'
-    #     run: |
-    #       echo "No ApplicationSets from enabled tribes require validation."
+      - name: Kubernetes server-side dry-run
+        if: steps.select.outputs.count != '0'
+        shell: bash
+        run: |
+
+          while read -r file; do
+
+            [ -z "$file" ] && continue
+
+            echo
+            echo "=========================================="
+            echo "Server-side dry-run: $file"
+            echo "=========================================="
+
+            kubectl apply \
+              --dry-run=server \
+              -f "$file"
+
+          done < /tmp/appset-files.txt
+
+
+      - name: Nothing to validate
+        if: steps.select.outputs.count == '0'
+        run: |
+          echo "No ApplicationSets from enabled tribes require validation."
 
 
   # =========================================================
   # DEPLOY
   #
-  # Runs ONLY when manually triggered with:
+  # Runs only when:
   #
-  # workflow_dispatch
-  # deploy_action = deploy
+  # - workflow_dispatch
+  # - deploy_action = deploy
   #
-  # This job only performs kubectl apply.
-  # Dry-run already happened in validate.
+  # Uses the same selected ApplicationSet list generated by
+  # the validate job.
+  #
+  # Therefore it deploys only target_tribe.
   # =========================================================
 
   deploy:
@@ -400,41 +390,37 @@ jobs:
           chmod 600 ~/.kube/config
 
 
-    #   - name: Verify Kubernetes connection
-    #     run: |
+      - name: Verify Kubernetes connection
+        run: |
 
-    #       kubectl cluster-info
+          kubectl cluster-info
 
-    #       echo
-    #       kubectl config current-context
-
-
-    #   - name: Deploy ApplicationSets
-    #     shell: bash
-    #     run: |
-
-    #       while read -r file; do
-
-    #         [ -z "$file" ] && continue
-
-    #         echo
-    #         echo "=========================================="
-    #         echo "Deploying: $file"
-    #         echo "=========================================="
-
-    #         kubectl apply \
-    #           -f "$file"
-
-    #       done < /tmp/appset-files.txt
+          echo
+          kubectl config current-context
 
 
-    #   - name: Show ApplicationSets
-    #     run: |
-    #       kubectl get applicationsets -A
-      - name: Show Message
+      - name: Deploy ApplicationSets
         shell: bash
         run: |
+
+          echo "Deploy action: ${{ inputs.deploy_action }}"
+          echo "Target tribe:  ${{ inputs.target_tribe }}"
+
+          while read -r file; do
+
+            [ -z "$file" ] && continue
+
             echo
             echo "=========================================="
-            echo "Deploying ApplicationSet"
+            echo "Deploying: $file"
             echo "=========================================="
+
+            kubectl apply \
+              -f "$file"
+
+          done < /tmp/appset-files.txt
+
+
+      - name: Show ApplicationSets
+        run: |
+          kubectl get applicationsets -A

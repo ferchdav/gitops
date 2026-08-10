@@ -74,11 +74,45 @@ def application_sets_for_tribe(tribe):
     if not tribe_path.exists():
         return []
 
-    return [
+    return sorted(
         str(path)
         for path in tribe_path.glob("*/applicationset.yaml")
         if path.is_file()
-    ]
+    )
+
+
+def validate_target_tribe(target_tribe, current_config):
+    if not target_tribe:
+        print("ERROR: --target-tribe was provided but is empty.")
+        sys.exit(1)
+
+    if target_tribe not in current_config:
+        print()
+        print("ERROR: Target tribe is not configured.")
+        print(f"Target tribe: {target_tribe}")
+        print()
+        print("Configured tribes:")
+
+        for tribe in sorted(current_config.keys()):
+            print(f"  - {tribe}")
+
+        sys.exit(1)
+
+    if not current_config[target_tribe]["enabled"]:
+        print()
+        print("ERROR: Target tribe is configured but not enabled.")
+        print(f"Target tribe: {target_tribe}")
+        print()
+        print("Enable it first in:")
+        print()
+        print("  .github/config/tribe-projects.yaml")
+        print()
+        print("Example:")
+        print()
+        print(f"{target_tribe}:")
+        print("  enabled: true")
+
+        sys.exit(1)
 
 
 def main():
@@ -114,6 +148,12 @@ def main():
         help="Select all ApplicationSets belonging to enabled tribes",
     )
 
+    parser.add_argument(
+        "--target-tribe",
+        required=False,
+        help="Select only ApplicationSets for one tribe",
+    )
+
     args = parser.parse_args()
 
     try:
@@ -145,15 +185,48 @@ def main():
     selected = set()
 
     # --------------------------------------------------------
-    # workflow_dispatch
+    # Manual workflow_dispatch with target tribe
     #
-    # Process ALL ApplicationSets from enabled tribes.
+    # This is the important path for controlled deployments.
+    #
+    # Example:
+    #
+    # --target-tribe dfa
+    #
+    # selects:
+    #
+    # dfa/*/applicationset.yaml
     # --------------------------------------------------------
 
-    if args.all_enabled:
+    if args.target_tribe:
+
+        target_tribe = args.target_tribe.strip()
+
+        print()
+        print("============================================================")
+        print("Target tribe selection")
+        print("============================================================")
+        print(f"Target tribe: {target_tribe}")
+
+        validate_target_tribe(
+            target_tribe,
+            current_config,
+        )
+
+        for filename in application_sets_for_tribe(target_tribe):
+            print(f"SELECTED: {filename}")
+            selected.add(filename)
+
+    # --------------------------------------------------------
+    # workflow_dispatch without target tribe
+    #
+    # Keep this for compatibility, but the workflow should not
+    # use it for deployment anymore.
+    # --------------------------------------------------------
+
+    elif args.all_enabled:
 
         for tribe in enabled_tribes:
-
             for filename in application_sets_for_tribe(tribe):
                 selected.add(filename)
 
@@ -249,7 +322,6 @@ def main():
     selected = sorted(selected)
 
     with open(args.output, "w", encoding="utf-8") as f:
-
         for filename in selected:
             f.write(filename + "\n")
 
