@@ -101,6 +101,11 @@ def validate_target_tribe(target_tribe, current_config):
         print("ERROR: --target-tribe was provided but is empty.")
         sys.exit(1)
 
+    if "/" in target_tribe or "\\" in target_tribe:
+        print("ERROR: target tribe must be a directory name only.")
+        print(f"Received: {target_tribe}")
+        sys.exit(1)
+
     if target_tribe not in current_config:
         print()
         print("ERROR: Target tribe is not configured.")
@@ -205,14 +210,12 @@ def main():
     selected = set()
 
     # --------------------------------------------------------
-    # Manual workflow_dispatch with target tribe + environment
-    #
-    # Example:
+    # Manual workflow_dispatch path:
     #
     # --target-tribe dfa
     # --target-environment dev
     #
-    # selects:
+    # selects exactly:
     #
     # dfa/dev/applicationset.yaml
     # --------------------------------------------------------
