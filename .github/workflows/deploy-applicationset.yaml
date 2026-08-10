@@ -24,15 +24,6 @@ on:
 
   workflow_dispatch:
     inputs:
-      deploy_action:
-        description: "Choose whether to only validate or run the selected kubectl action"
-        required: true
-        default: validate
-        type: choice
-        options:
-          - validate
-          - deploy
-
       tribe:
         description: "Tribe directory"
         required: true
@@ -63,7 +54,7 @@ on:
           - prd
 
       kubectlAction:
-        description: "Kubectl action to execute only when deploy_action=deploy"
+        description: "Kubectl action to execute"
         required: true
         default: list_appset
         type: choice
@@ -165,11 +156,10 @@ jobs:
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
 
             echo "Manual workflow execution."
-            echo "Deploy action:         ${{ inputs.deploy_action }}"
-            echo "Selected tribe:        ${{ inputs.tribe }}"
-            echo "Selected environment:  ${{ inputs.target_environment }}"
-            echo "Selected cluster:      ${{ inputs.clusterName }}"
-            echo "Selected kubectlAction:${{ inputs.kubectlAction }}"
+            echo "Selected tribe:         ${{ inputs.tribe }}"
+            echo "Selected environment:   ${{ inputs.target_environment }}"
+            echo "Selected cluster:       ${{ inputs.clusterName }}"
+            echo "Selected kubectlAction: ${{ inputs.kubectlAction }}"
 
             find . \
               -mindepth 3 \
@@ -510,14 +500,18 @@ jobs:
   # =========================================================
   # KUBECTL ACTION
   #
-  # Runs only when:
-  #
-  # - workflow_dispatch
-  # - deploy_action = deploy
+  # Runs only for workflow_dispatch.
   #
   # It executes the selected kubectlAction against exactly:
   #
   # <tribe>/<environment-directory>/applicationset.yaml
+  #
+  # Actions:
+  #
+  # - apply_appset
+  # - describe_appset
+  # - list_appset
+  # - delete_appset
   # =========================================================
 
   kubectl-action:
@@ -530,8 +524,7 @@ jobs:
 
     if: |
       needs.validate.outputs.appset_count != '0' &&
-      github.event_name == 'workflow_dispatch' &&
-      inputs.deploy_action == 'deploy'
+      github.event_name == 'workflow_dispatch'
 
     steps:
 
@@ -598,7 +591,6 @@ jobs:
 
           set -euo pipefail
 
-          echo "Deploy action:          ${{ inputs.deploy_action }}"
           echo "Selected tribe:         ${{ inputs.tribe }}"
           echo "Selected environment:   ${{ inputs.target_environment }}"
           echo "Selected cluster:       ${{ inputs.clusterName }}"
