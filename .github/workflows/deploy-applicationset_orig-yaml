@@ -5,7 +5,6 @@ on:
   pull_request:
     branches:
       - main
-      - dev
     paths:
       - '*/*/applicationset.yaml'
       - '.github/config/tribe-projects.yaml'
@@ -23,15 +22,7 @@ on:
       - '.github/workflows/deploy-applicationset.yaml'
 
   workflow_dispatch:
-    inputs:
-      deploy_action:
-        description: "What do you want to do?"
-        required: true
-        default: validate_only
-        type: choice
-        options:
-          - validate_only
-          - deploy
+
 
 permissions:
   contents: read
@@ -114,16 +105,6 @@ jobs:
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
 
             echo "Manual workflow execution."
-            echo "Selecting all enabled ApplicationSets."
-
-            find . \
-              -mindepth 3 \
-              -maxdepth 3 \
-              -type f \
-              -name applicationset.yaml \
-              | sed 's#^\./##' \
-              | sort \
-              > /tmp/appset-files-all.txt            
 
           elif [ -z "${BASE_SHA}" ] || \
                [ "${BASE_SHA}" = "0000000000000000000000000000000000000000" ]; then
@@ -150,7 +131,7 @@ jobs:
           fi
 
           echo
-          echo "Candidate ApplicationSets:"
+          echo "Changed ApplicationSets:"
           cat /tmp/appset-files-all.txt || true
 
 
@@ -300,20 +281,13 @@ jobs:
     needs:
       - validate
 
-    # if: |
-    #   needs.validate.outputs.appset_count != '0' &&
-    #   (
-    #     github.event_name == 'workflow_dispatch' ||
-    #     (
-    #       github.event_name == 'push' && ( github.ref == 'refs/heads/dev' || github.ref == 'refs/heads/main' )
-    #     )
-    #   )
-
     if: |
       needs.validate.outputs.appset_count != '0' &&
       (
         github.event_name == 'workflow_dispatch' ||
-        github.event_name == 'push'
+        (
+          github.event_name == 'push' && ( github.ref == 'refs/heads/dev' || github.ref == 'refs/heads/main' )
+        )
       )
 
     steps:
@@ -403,31 +377,17 @@ jobs:
       - validate
       - server-dry-run
 
-    # -------------------------------------------------------
-    # No environment approval here.
-    #
-    # Deployment runs ONLY when someone manually starts the
-    # workflow and selects:
-    #
-    # deploy_action = deploy
-    # -------------------------------------------------------
-
-    # if: |
-    #   needs.validate.outputs.appset_count != '0' &&
-    #   (
-    #     github.event_name == 'workflow_dispatch' ||
-    #     (
-    #       github.event_name == 'push' && ( github.ref == 'refs/heads/dev' || github.ref == 'refs/heads/main' )
-    #     )
-    #   )
-
     if: |
       needs.validate.outputs.appset_count != '0' &&
-      github.event_name == 'workflow_dispatch' &&
-      inputs.deploy_action == 'deploy'
+      (
+        github.event_name == 'workflow_dispatch' ||
+        (
+          github.event_name == 'push' && ( github.ref == 'refs/heads/dev' || github.ref == 'refs/heads/main' )
+        )
+      )
 
-    # environment:
-    #   name: applicationset-cd
+    environment:
+      name: applicationset-cd
 
     steps:
 

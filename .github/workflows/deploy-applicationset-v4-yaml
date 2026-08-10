@@ -39,23 +39,7 @@ permissions:
 
 jobs:
 
-  # =========================================================
-  # 1. VALIDATION
-  #
-  # Runs automatically.
-  #
-  # This validates:
-  #
-  # - YAML syntax
-  # - ApplicationSet structure
-  # - tribe/project mapping
-  # - enabled tribe rollout rules
-  #
-  # It does NOT require Kubernetes access.
-  # =========================================================
-
   validate:
-
     name: Validate ApplicationSet
 
     runs-on: ubuntu-latest
@@ -123,7 +107,7 @@ jobs:
               -name applicationset.yaml \
               | sed 's#^\./##' \
               | sort \
-              > /tmp/appset-files-all.txt            
+              > /tmp/appset-files-all.txt
 
           elif [ -z "${BASE_SHA}" ] || \
                [ "${BASE_SHA}" = "0000000000000000000000000000000000000000" ]; then
@@ -272,42 +256,13 @@ jobs:
           echo "No ApplicationSets from enabled tribes require validation."
 
 
-  # =========================================================
-  # 2. KUBERNETES SERVER-SIDE DRY-RUN
-  #
-  # Runs automatically AFTER validation.
-  #
-  # This checks the real Kubernetes API server and the
-  # installed ApplicationSet CRD.
-  #
-  # This job does NOT wait for manual approval.
-  #
-  # It runs only for:
-  #
-  # - push to main
-  # - workflow_dispatch
-  #
-  # It does not run on pull_request to avoid exposing
-  # Kubernetes credentials during PR validation.
-  # =========================================================
-
   server-dry-run:
-
     name: Kubernetes Server-Side Dry Run
 
     runs-on: ubuntu-latest
 
     needs:
       - validate
-
-    # if: |
-    #   needs.validate.outputs.appset_count != '0' &&
-    #   (
-    #     github.event_name == 'workflow_dispatch' ||
-    #     (
-    #       github.event_name == 'push' && ( github.ref == 'refs/heads/dev' || github.ref == 'refs/heads/main' )
-    #     )
-    #   )
 
     if: |
       needs.validate.outputs.appset_count != '0' &&
@@ -344,57 +299,41 @@ jobs:
           chmod 600 ~/.kube/config
 
 
-      # - name: Verify Kubernetes connection
-      #   run: |
+      - name: Verify Kubernetes connection
+        run: |
 
-      #     kubectl cluster-info
+          kubectl cluster-info
 
-      #     echo
-      #     kubectl config current-context
-
-
-      # - name: Verify ApplicationSet CRD
-      #   run: |
-      #     kubectl get crd applicationsets.argoproj.io
+          echo
+          kubectl config current-context
 
 
-      # - name: Server-side ApplicationSet dry-run
-      #   shell: bash
-      #   run: |
-
-      #     while read -r file; do
-
-      #       [ -z "$file" ] && continue
-
-      #       echo
-      #       echo "=========================================="
-      #       echo "Server-side dry-run: $file"
-      #       echo "=========================================="
-
-      #       kubectl apply \
-      #         --dry-run=server \
-      #         -f "$file"
-
-      #     done < /tmp/appset-files.txt
+      - name: Verify ApplicationSet CRD
+        run: |
+          kubectl get crd applicationsets.argoproj.io
 
 
-  # =========================================================
-  # 3. DEPLOY
-  #
-  # This job waits for manual approval.
-  #
-  # The approval happens AFTER:
-  #
-  # - validate
-  # - kubectl dry-run
-  #
-  # Once approved, this job performs:
-  #
-  # kubectl apply -f ...
-  # =========================================================
+      - name: Server-side ApplicationSet dry-run
+        shell: bash
+        run: |
+
+          while read -r file; do
+
+            [ -z "$file" ] && continue
+
+            echo
+            echo "=========================================="
+            echo "Server-side dry-run: $file"
+            echo "=========================================="
+
+            kubectl apply \
+              --dry-run=server \
+              -f "$file"
+
+          done < /tmp/appset-files.txt
+
 
   deploy:
-
     name: Deploy ApplicationSet CD
 
     runs-on: ubuntu-latest
@@ -412,22 +351,10 @@ jobs:
     # deploy_action = deploy
     # -------------------------------------------------------
 
-    # if: |
-    #   needs.validate.outputs.appset_count != '0' &&
-    #   (
-    #     github.event_name == 'workflow_dispatch' ||
-    #     (
-    #       github.event_name == 'push' && ( github.ref == 'refs/heads/dev' || github.ref == 'refs/heads/main' )
-    #     )
-    #   )
-
     if: |
       needs.validate.outputs.appset_count != '0' &&
       github.event_name == 'workflow_dispatch' &&
       inputs.deploy_action == 'deploy'
-
-    # environment:
-    #   name: applicationset-cd
 
     steps:
 
@@ -440,6 +367,7 @@ jobs:
         with:
           name: selected-applicationsets
           path: /tmp
+
 
       - name: Configure Kubernetes for deployment
         env:
@@ -455,40 +383,35 @@ jobs:
 
           chmod 600 ~/.kube/config
 
-      # - name: Verify Kubernetes connection
-      #   run: |
 
-      #     kubectl cluster-info
+      - name: Verify Kubernetes connection
+        run: |
 
-      #     echo
-      #     kubectl config current-context
+          kubectl cluster-info
 
-      # - name: Deploy ApplicationSets
-      #   shell: bash
-      #   run: |
+          echo
+          kubectl config current-context
 
-      #     while read -r file; do
 
-      #       [ -z "$file" ] && continue
-
-      #       echo
-      #       echo "=========================================="
-      #       echo "Deploying: $file"
-      #       echo "=========================================="
-
-      #       kubectl apply \
-      #         -f "$file"
-
-      #     done < /tmp/appset-files.txt
-
-      # - name: Show ApplicationSets
-      #   run: |
-      #     kubectl get applicationsets -A
-
-      - name: Show Message
+      - name: Deploy ApplicationSets
         shell: bash
         run: |
+
+          while read -r file; do
+
+            [ -z "$file" ] && continue
+
             echo
             echo "=========================================="
-            echo "Deploying ApplicationSet"
+            echo "Deploying: $file"
             echo "=========================================="
+
+            kubectl apply \
+              -f "$file"
+
+          done < /tmp/appset-files.txt
+
+
+      - name: Show ApplicationSets
+        run: |
+          kubectl get applicationsets -A
