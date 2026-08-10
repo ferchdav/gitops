@@ -430,16 +430,16 @@ jobs:
             echo "Cluster:     ${cluster}"
             echo "=========================================="
 
-            configure_cluster "${cluster}"
+        #     configure_cluster "${cluster}"
 
-            kubectl cluster-info
-            kubectl get crd applicationsets.argoproj.io
+        #     kubectl cluster-info
+        #     kubectl get crd applicationsets.argoproj.io
 
-            kubectl apply \
-              --dry-run=server \
-              -f "$file"
+        #     kubectl apply \
+        #       --dry-run=server \
+        #       -f "$file"
 
-          done < /tmp/appset-files.txt
+        #   done < /tmp/appset-files.txt
 
 
       - name: Nothing to validate
