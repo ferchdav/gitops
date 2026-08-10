@@ -209,7 +209,6 @@ def main():
 
     selected = set()
 
-    # --------------------------------------------------------
     # Manual workflow_dispatch path:
     #
     # --target-tribe dfa
@@ -218,7 +217,6 @@ def main():
     # selects exactly:
     #
     # dfa/dev/applicationset.yaml
-    # --------------------------------------------------------
 
     if args.target_tribe or args.target_environment:
         if not args.target_tribe or not args.target_environment:

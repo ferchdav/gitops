@@ -56,9 +56,10 @@ on:
       kubectlAction:
         description: "Kubectl action to execute"
         required: true
-        default: list_appset
+        default: validate_appset
         type: choice
         options:
+          - validate_appset
           - apply_appset
           - describe_appset
           - list_appset
@@ -69,27 +70,6 @@ permissions:
 
 
 jobs:
-
-  # =========================================================
-  # VALIDATE
-  #
-  # pull_request:
-  #   validates changed enabled ApplicationSets
-  #
-  # push:
-  #   validates changed enabled ApplicationSets
-  #
-  # workflow_dispatch:
-  #   validates exactly:
-  #
-  #   <tribe>/<environment-directory>/applicationset.yaml
-  #
-  # Includes:
-  #
-  # - YAML validation
-  # - ApplicationSet validation
-  # - kubectl apply --dry-run=server
-  # =========================================================
 
   validate:
     name: Validate ApplicationSet
@@ -312,19 +292,6 @@ jobs:
             --files /tmp/appset-files.txt
 
 
-      # -----------------------------------------------------
-      # Safety check for manual workflow_dispatch:
-      #
-      # dev -> npe
-      # uat -> uat
-      # prd -> prd
-      #
-      # This prevents:
-      #
-      # environment = dev
-      # clusterName  = prd
-      # -----------------------------------------------------
-
       - name: Validate environment and cluster match
         if: github.event_name == 'workflow_dispatch'
         shell: bash
@@ -361,22 +328,6 @@ jobs:
 
           echo "Environment/cluster match validated."
 
-
-      # -----------------------------------------------------
-      # Kubernetes server-side dry-run.
-      #
-      # This is part of validation.
-      #
-      # pull_request and push:
-      #   cluster is inferred from the file path:
-      #
-      #   dev  -> npe
-      #   uat  -> uat
-      #   prod -> prd
-      #
-      # workflow_dispatch:
-      #   clusterName input is validated and used.
-      # -----------------------------------------------------
 
       - name: Kubernetes server-side dry-run
         if: steps.select.outputs.count != '0'
@@ -497,23 +448,6 @@ jobs:
           echo "No ApplicationSets from enabled tribes require validation."
 
 
-  # =========================================================
-  # KUBECTL ACTION
-  #
-  # Runs only for workflow_dispatch.
-  #
-  # It executes the selected kubectlAction against exactly:
-  #
-  # <tribe>/<environment-directory>/applicationset.yaml
-  #
-  # Actions:
-  #
-  # - apply_appset
-  # - describe_appset
-  # - list_appset
-  # - delete_appset
-  # =========================================================
-
   kubectl-action:
     name: Run kubectl ApplicationSet Action
 
@@ -524,7 +458,8 @@ jobs:
 
     if: |
       needs.validate.outputs.appset_count != '0' &&
-      github.event_name == 'workflow_dispatch'
+      github.event_name == 'workflow_dispatch' &&
+      inputs.kubectlAction != 'validate_appset'
 
     steps:
 
