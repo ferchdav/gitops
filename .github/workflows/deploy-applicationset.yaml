@@ -27,7 +27,7 @@ on:
       tribe:
         description: "Tribe directory"
         required: true
-        default: dfa
+        default: ige
         type: choice
         options:
           - dfa
@@ -56,7 +56,7 @@ on:
       kubectlAction:
         description: "Kubectl action to execute"
         required: true
-        default: list_appset
+        default: apply_appset
         type: choice
         options:
           - apply_appset
