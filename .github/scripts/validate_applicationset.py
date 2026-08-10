@@ -62,12 +62,6 @@ def main():
         print(f"Validating: {filename}")
         print("============================================================")
 
-        # ----------------------------------------------------
-        # Validate directory structure:
-        #
-        # <tribe>/<environment>/applicationset.yaml
-        # ----------------------------------------------------
-
         if len(path.parts) != 3:
             errors.append(
                 f"{filename}: invalid path. Expected "
@@ -81,10 +75,6 @@ def main():
 
         print(f"Tribe:       {tribe}")
         print(f"Environment: {environment}")
-
-        # ----------------------------------------------------
-        # Validate tribe exists and is enabled
-        # ----------------------------------------------------
 
         if tribe not in config:
             errors.append(
@@ -120,10 +110,6 @@ def main():
             + ", ".join(allowed_projects)
         )
 
-        # ----------------------------------------------------
-        # Parse YAML
-        # ----------------------------------------------------
-
         try:
             with open(
                 filename,
@@ -146,10 +132,6 @@ def main():
 
             continue
 
-        # ----------------------------------------------------
-        # apiVersion
-        # ----------------------------------------------------
-
         api_version = manifest.get("apiVersion")
 
         if api_version != "argoproj.io/v1alpha1":
@@ -158,20 +140,12 @@ def main():
                 "'argoproj.io/v1alpha1'"
             )
 
-        # ----------------------------------------------------
-        # kind
-        # ----------------------------------------------------
-
         kind = manifest.get("kind")
 
         if kind != "ApplicationSet":
             errors.append(
                 f"{filename}: kind must be 'ApplicationSet'"
             )
-
-        # ----------------------------------------------------
-        # metadata
-        # ----------------------------------------------------
 
         metadata = manifest.get("metadata")
 
@@ -184,10 +158,6 @@ def main():
             errors.append(
                 f"{filename}: metadata.name is required"
             )
-
-        # ----------------------------------------------------
-        # spec
-        # ----------------------------------------------------
 
         spec = manifest.get("spec")
 
@@ -202,10 +172,6 @@ def main():
             errors.append(
                 f"{filename}: spec.generators is required"
             )
-
-        # ----------------------------------------------------
-        # template
-        # ----------------------------------------------------
 
         template = spec.get("template")
 
@@ -225,10 +191,6 @@ def main():
 
             continue
 
-        # ----------------------------------------------------
-        # Argo CD project
-        # ----------------------------------------------------
-
         project = template_spec.get("project")
 
         if not project:
@@ -240,10 +202,6 @@ def main():
             continue
 
         print(f"Actual project:  {project}")
-
-        # ----------------------------------------------------
-        # Validate project against tribe mapping
-        # ----------------------------------------------------
 
         if project not in allowed_projects:
             errors.append(
