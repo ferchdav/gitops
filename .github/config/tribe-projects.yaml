@@ -79,3 +79,8 @@ tribes:
     allowed_projects:
       - dobsy
       - core-sre
+
+  xump:
+    enabled: true
+    allowed_projects:
+      - xump
