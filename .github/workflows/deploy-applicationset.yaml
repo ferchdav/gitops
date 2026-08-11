@@ -10,7 +10,7 @@ on:
       - 'feature/**'
     paths:
       - '*/*/applicationset.yaml'
-      - '.github/config/tribe-projects.yaml'
+      - '.github/config/**'
       - '.github/scripts/**'
       - '.github/workflows/deploy-applicationset.yaml'
 
@@ -22,7 +22,7 @@ on:
       - 'feature/**'
     paths:
       - '*/*/applicationset.yaml'
-      - '.github/config/tribe-projects.yaml'
+      - '.github/config/**'
       - '.github/scripts/**'
       - '.github/workflows/deploy-applicationset.yaml'
 
@@ -36,9 +36,10 @@ on:
         options:
           - dfa
           - ige
+          - xump
 
       target_environment:
-        description: "Environment. prd maps to the prod directory."
+        description: "Environment"
         required: true
         default: dev
         type: choice
@@ -46,6 +47,10 @@ on:
           - dev
           - uat
           - prd
+          - int-au
+          - int-br
+          - int-ca
+          - int-in
 
       clusterName:
         description: "Target Kubernetes cluster"
@@ -130,7 +135,7 @@ jobs:
         shell: bash
         run: |
 
-          set -e
+          set -euo pipefail
 
           BASE_SHA="${{ steps.commits.outputs.base }}"
           HEAD_SHA="${{ steps.commits.outputs.head }}"
@@ -177,26 +182,39 @@ jobs:
               -- '*/*/applicationset.yaml' \
               > /tmp/appset-files-all.txt
 
+            if git diff \
+              --name-only \
+              "${BASE_SHA}" \
+              "${HEAD_SHA}" \
+              -- '.github/config/environment-clusters.yaml' \
+                 '.github/scripts/resolve_cluster.py' \
+                 '.github/workflows/deploy-applicationset.yaml' \
+              | grep -q .; then
+
+              echo
+              echo "Environment cluster config, resolver script, or workflow changed."
+              echo "Adding all ApplicationSets from enabled tribes as validation candidates."
+
+              find . \
+                -mindepth 3 \
+                -maxdepth 3 \
+                -type f \
+                -name applicationset.yaml \
+                | sed 's#^\./##' \
+                >> /tmp/appset-files-all.txt
+
+              sort -u \
+                /tmp/appset-files-all.txt \
+                -o /tmp/appset-files-all.txt
+
+            fi
+
           fi
 
           echo
           echo "Candidate ApplicationSets:"
           cat /tmp/appset-files-all.txt || true
 
-
-      # -----------------------------------------------------
-      # Manual branch policy:
-      #
-      # main:
-      #   validate_appset, apply_appset, describe_appset,
-      #   list_appset, delete_appset are allowed.
-      #
-      # dev and feature branches:
-      #   validate_appset only.
-      #
-      # GitHub workflow_dispatch choices are static, so this
-      # guard enforces the rule at runtime.
-      # -----------------------------------------------------
 
       - name: Enforce manual action branch policy
         if: github.event_name == 'workflow_dispatch'
@@ -346,23 +364,14 @@ jobs:
         shell: bash
         run: |
 
-          set -e
+          set -euo pipefail
 
-          case "${{ inputs.target_environment }}" in
-            dev)
-              EXPECTED_CLUSTER="npe"
-              ;;
-            uat)
-              EXPECTED_CLUSTER="uat"
-              ;;
-            prd)
-              EXPECTED_CLUSTER="prd"
-              ;;
-            *)
-              echo "Invalid environment: ${{ inputs.target_environment }}"
-              exit 1
-              ;;
-          esac
+          EXPECTED_CLUSTER="$(
+            python \
+              .github/scripts/resolve_cluster.py \
+              --config .github/config/environment-clusters.yaml \
+              --environment "${{ inputs.target_environment }}"
+          )"
 
           if [ "${{ inputs.clusterName }}" != "${EXPECTED_CLUSTER}" ]; then
 
@@ -376,6 +385,8 @@ jobs:
           fi
 
           echo "Environment/cluster match validated."
+          echo "Environment: ${{ inputs.target_environment }}"
+          echo "Cluster:     ${EXPECTED_CLUSTER}"
 
 
       - name: Kubernetes server-side dry-run
@@ -429,20 +440,10 @@ jobs:
 
             local environment_directory="$1"
 
-            case "${environment_directory}" in
-              dev)
-                echo "npe"
-                ;;
-              uat)
-                echo "uat"
-                ;;
-              prd)
-                echo "prd"
-                ;;
-              *)
-                echo "ERROR"
-                ;;
-            esac
+            python \
+              .github/scripts/resolve_cluster.py \
+              --config .github/config/environment-clusters.yaml \
+              --environment "${environment_directory}"
           }
 
 
@@ -459,9 +460,7 @@ jobs:
 
             else
 
-              cluster="$(cluster_for_environment_directory "${environment_directory}")"
-
-              if [ "${cluster}" = "ERROR" ]; then
+              if ! cluster="$(cluster_for_environment_directory "${environment_directory}")"; then
                 echo "ERROR: Cannot infer cluster from path: ${file}"
                 echo "Environment directory: ${environment_directory}"
                 exit 1
@@ -479,12 +478,14 @@ jobs:
             echo "Cluster:     ${cluster}"
             echo "=========================================="
 
-            # configure_cluster "${cluster}"
+            configure_cluster "${cluster}"
 
-            # kubectl cluster-info
-            # kubectl get crd applicationsets.argoproj.io
+            kubectl cluster-info
+            kubectl get crd applicationsets.argoproj.io
 
-            # kubectl apply --dry-run=server -f "$file"
+            kubectl apply \
+              --dry-run=server \
+              -f "$file"
 
           done < /tmp/appset-files.txt
 
@@ -607,28 +608,37 @@ jobs:
 
                 echo "Running: kubectl apply -f ${file}"
 
-                kubectl apply -f "$file"
+                kubectl apply \
+                  -f "$file"
+
                 ;;
 
               describe_appset)
 
                 echo "Running: kubectl describe -f ${file}"
 
-                kubectl describe -f "$file"
+                kubectl describe \
+                  -f "$file"
+
                 ;;
 
               list_appset)
 
                 echo "Running: kubectl get -f ${file} -o wide"
 
-                kubectl get -f "$file" -o wide
+                kubectl get \
+                  -f "$file" \
+                  -o wide
+
                 ;;
 
               delete_appset)
 
                 echo "Running: kubectl delete -f ${file}"
 
-                kubectl delete -f "$file"
+                kubectl delete \
+                  -f "$file"
+
                 ;;
 
               *)

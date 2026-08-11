@@ -68,19 +68,23 @@ def load_changed_files(filename):
 
 
 def environment_to_directory(environment):
-    mapping = {
-        "dev": "dev",
-        "uat": "uat",
-        "prd": "prd",
-    }
+    environment = environment.strip()
 
-    if environment not in mapping:
+    if not environment:
+        raise ValueError("Environment cannot be empty")
+
+    if "/" in environment or "\\" in environment:
         raise ValueError(
             f"Invalid environment '{environment}'. "
-            "Expected one of: dev, uat, prd"
+            "Environment must be a directory name only."
         )
 
-    return mapping[environment]
+    if environment in [".", ".."]:
+        raise ValueError(
+            f"Invalid environment '{environment}'."
+        )
+
+    return environment
 
 
 def application_sets_for_tribe(tribe):
@@ -177,7 +181,7 @@ def main():
     parser.add_argument(
         "--target-environment",
         required=False,
-        help="Select only one environment: dev, uat, prd",
+        help="Select only one environment",
     )
 
     args = parser.parse_args()
@@ -208,15 +212,6 @@ def main():
         print(f"{tribe}: {projects}")
 
     selected = set()
-
-    # Manual workflow_dispatch path:
-    #
-    # --target-tribe dfa
-    # --target-environment dev
-    #
-    # selects exactly:
-    #
-    # dfa/dev/applicationset.yaml
 
     if args.target_tribe or args.target_environment:
         if not args.target_tribe or not args.target_environment:
@@ -252,10 +247,13 @@ def main():
             print("ERROR: Selected ApplicationSet file does not exist.")
             print(f"Expected file: {target_file}")
             print()
-            print("Current mapping:")
-            print("  environment dev -> directory dev")
-            print("  environment uat -> directory uat")
-            print("  environment prd -> directory prod")
+            print("Environment and directory names are expected to match.")
+            print()
+            print("Examples:")
+            print("  target_environment dev    -> directory dev")
+            print("  target_environment uat    -> directory uat")
+            print("  target_environment prd    -> directory prd")
+            print("  target_environment int-au -> directory int-au")
             sys.exit(1)
 
         print(f"SELECTED: {target_file}")

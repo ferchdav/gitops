@@ -1,0 +1,27 @@
+allowed_clusters:
+  - npe
+  - uat
+  - prd
+
+environments:
+
+  dev:
+    cluster: npe
+
+  uat:
+    cluster: uat
+
+  prd:
+    cluster: prd
+
+  int-au:
+    cluster: npe
+
+  int-br:
+    cluster: npe
+
+  int-ca:
+    cluster: npe
+
+  int-in:
+    cluster: npe
